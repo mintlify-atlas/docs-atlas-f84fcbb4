@@ -1,0 +1,163 @@
+---
+title: 'createPlayBookUtils'
+description: 'Factory function for processing ordered sequences of bookEvents'
+---
+
+`createPlayBookUtils` returns a pair of functions — `playBookEvent` and `playBookEvents` — that drive a game book: an ordered list of events returned by the RGS (e.g. `reveal`, `winInfo`, `setWin`). Each event is dispatched to its matching handler and awaited before the next one starts.
+
+## Function signature
+
+```typescript
+function createPlayBookUtils<
+  TBookEventHandlerMap extends BookEventHandlerMap<any, any>
+>(options: {
+  bookEventHandlerMap: TBookEventHandlerMap;
+  debug?: boolean;
+}): {
+  playBookEvent: (bookEvent: TBookEvent, bookEventContext: TBookEventContext) => Promise<void>;
+  playBookEvents: (bookEvents: TBookEvent[], bookEventContext?: BookEventContextFromMapWithoutBookEvents) => Promise<void>;
+}
+```
+
+## Parameters
+
+<ParamField path="bookEventHandlerMap" type="TBookEventHandlerMap" required>
+  A map of `bookEvent.type` strings to async handler functions. The generic type parameter `TBookEventHandlerMap` must extend `BookEventHandlerMap<TBookEvent, THandlerContext>`, which gives TypeScript the information it needs to infer `TBookEvent` and the context shape from a single source of truth.
+
+  Each handler has the signature:
+  ```typescript
+  (bookEvent: TBookEvent, context: THandlerContext) => Promise<void>
+  ```
+</ParamField>
+
+<ParamField path="debug" type="boolean">
+  When `true`, logs each `bookEvent` object to the console via `console.log` before its handler is called. Useful during development to trace book playback.
+</ParamField>
+
+## Return value
+
+<ResponseField name="playBookEvent" type="(bookEvent, bookEventContext) => Promise<void>">
+  Plays a single book event. Looks up `bookEvent.type` in `bookEventHandlerMap`, then awaits the matching handler. If no handler is found, logs an error to the console — it does **not** throw.
+
+  ```typescript
+  const playBookEvent = async (
+    bookEvent: TBookEvent,
+    bookEventContext: TBookEventContext,
+  ) => Promise<void>
+  ```
+
+  `TBookEventContext` is the handler context type merged with `{ bookEvents: TBookEvent[] }`, so every handler receives the full book alongside the current event.
+</ResponseField>
+
+<ResponseField name="playBookEvents" type="(bookEvents, bookEventContext?) => Promise<void>">
+  Plays a list of book events **in sequence** — one at a time, in order — using an internal `sequence()` utility (not `Promise.all`). This is intentional: game events have strict ordering requirements. A reel must finish spinning before wins are shown; free-spin triggers must complete before the next spin begins.
+
+  ```typescript
+  const playBookEvents = async (
+    bookEvents: TBookEvent[],
+    bookEventContext?: BookEventContextFromMapWithoutBookEvents,
+  ) => Promise<void>
+  ```
+
+  If `bookEventContext` is omitted, an empty object is used. The full `bookEvents` array is automatically injected into the context passed to each handler, so handlers can inspect the complete book (e.g. to detect bonus rounds).
+</ResponseField>
+
+## TypeScript types
+
+These types are exported from `utils-book`.
+
+```typescript
+// Every book event must carry an index and a discriminant type string.
+export type BaseBookEvent = { index: number; type: string };
+
+// A handler for a specific book event type and context.
+export type BookEventHandler<
+  TBookEvent extends BaseBookEvent,
+  THandlerContext extends object,
+> = (bookEvent: TBookEvent, context: THandlerContext) => Promise<void>;
+
+// The map of type strings to handlers.
+export type BookEventHandlerMap<
+  TBookEvent extends BaseBookEvent,
+  THandlerContext extends object,
+> = Record<string, BookEventHandler<TBookEvent, THandlerContext>>;
+
+// Extract the BookEvent union from a BookEventHandlerMap.
+export type GetBookEventFromMap<T extends BookEventHandlerMap<any, any>> =
+  T extends BookEventHandlerMap<infer U, any> ? U : never;
+
+// Extract the handler context type from a BookEventHandlerMap.
+export type GetBookEventContextFromMap<T extends BookEventHandlerMap<any, any>> =
+  T extends BookEventHandlerMap<any, infer U> ? U : never;
+```
+
+`GetBookEventFromMap` and `GetBookEventContextFromMap` let you derive types from the map without repeating yourself:
+
+```typescript
+type MyBookEvent = GetBookEventFromMap<typeof bookEventHandlerMap>;
+type MyBookEventContext = GetBookEventContextFromMap<typeof bookEventHandlerMap>;
+```
+
+## createMultiBookUtils
+
+For games that play **multiple books simultaneously** (e.g. side-by-side bonus rounds), `createMultiBookUtils` provides two utilities:
+
+- **`splitBookToRounds`** — splits a single flat book array into rounds, breaking on a specified set of event types.
+- **`booksToRounds`** / **`roundsToBooks`** — zips multiple books into interleaved rounds so that round 1 from each book plays together, then round 2, and so on.
+
+Use `createMultiBookUtils` when you need to synchronise multiple books round-by-round rather than playing them serially. For single-book games, `createPlayBookUtils` is sufficient.
+
+```typescript
+const { booksToRounds, roundsToBooks } = createMultiBookUtils();
+
+const rounds = booksToRounds({ books: [bookA, bookB], splitBy: ['reveal'] });
+// rounds[0] = [eventsFromBookABeforeFirstReveal, eventsFromBookBBeforeFirstReveal]
+// rounds[1] = [revealFromBookA, revealFromBookB]
+// ...
+
+const remerged = roundsToBooks({ rounds });
+```
+
+## Usage example
+
+```typescript
+import { createPlayBookUtils, type BookEventHandlerMap } from 'utils-book';
+
+// 1. Define the BookEvent union type
+type BookEvent =
+  | { index: number; type: 'reveal'; board: string[][] }
+  | { index: number; type: 'setTotalWin'; amount: number }
+  | { index: number; type: 'finalWin'; amount: number };
+
+type BookEventContext = { bookEvents: BookEvent[] };
+type BookEventOfType<T> = Extract<BookEvent, { type: T }>;
+
+// 2. Create the handler map
+export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContext> = {
+  reveal: async (bookEvent: BookEventOfType<'reveal'>, context: BookEventContext) => {
+    await reelSpin({ board: bookEvent.board });
+  },
+  setTotalWin: async (bookEvent: BookEventOfType<'setTotalWin'>) => {
+    totalWin = bookEvent.amount;
+  },
+  finalWin: async (_bookEvent: BookEventOfType<'finalWin'>) => {
+    // intentionally empty
+  },
+};
+
+// 3. Create the utils
+const { playBookEvent, playBookEvents } = createPlayBookUtils({
+  bookEventHandlerMap,
+  debug: true, // log each event during development
+});
+
+// 4. Play a full book returned by the RGS
+const bet = await requestBet({ sessionID, currency, amount, mode, rgsUrl });
+const bookEvents = bet.round.state as BookEvent[];
+
+await playBookEvents(bookEvents);
+```
+
+<Note>
+  `playBookEvents` uses `sequence()` internally — a sequential async iterator. This is **not** `Promise.all`. Each handler must fully resolve before the next event begins, preserving the visual order of the game.
+</Note>

@@ -1,0 +1,145 @@
+---
+title: "pixi-svelte"
+description: "Svelte 5 components wrapping PixiJS 8 primitives for declarative game rendering"
+---
+
+`pixi-svelte` is the rendering layer of the Stake Engine Web SDK. It wraps [PixiJS 8](https://www.npmjs.com/package/pixi.js) display objects as declarative [Svelte 5](https://www.npmjs.com/package/svelte) components, so you can build a 2D game scene the same way you build a web page.
+
+It is also published as a standalone npm package at [npmjs.com/package/pixi-svelte](https://www.npmjs.com/package/pixi-svelte).
+
+**Current version:** `2.1.0`
+
+## Key dependencies
+
+| Dependency | Version |
+|---|---|
+| `pixi.js` | 8.8.1 |
+| `@esotericsoftware/spine-pixi-v8` | 4.2.74 |
+| `@barvynkoa/particle-emitter` | 0.0.1 |
+| `svelte` | 5.20.5 |
+| `webfontloader` | 1.6.28 |
+
+## Components
+
+All components are exported from the package root:
+
+```ts
+import {
+  App,
+  Container,
+  Sprite,
+  BaseSprite,
+  Text,
+  BitmapText,
+  AnimatedSprite,
+  SpriteSheet,
+  Graphics,
+  Circle,
+  Rectangle,
+  SpineProvider,
+  BaseSpineProvider,
+  SpineTrack,
+  SpineBone,
+  SpineSlot,
+  SpineEventEmitterProvider,
+  ParticleContainer,
+  ParticleEmitter,
+  Particles,
+} from 'pixi-svelte';
+```
+
+### Component reference
+
+| Component | Description |
+|---|---|
+| `App` | Root PixiJS application container. Set `resizeTo: window` for full-screen games. |
+| `Container` | Groups child display objects. Maps to `PIXI.Container`. |
+| `Sprite` | Renders a texture from `loadedAssets`. |
+| `BaseSprite` | Low-level sprite without asset loading wiring. |
+| `Text` | Dynamic text using `PIXI.Text`. |
+| `BitmapText` | Performant text using pre-rendered bitmap fonts (`PIXI.BitmapText`). |
+| `AnimatedSprite` | Frame-by-frame animation from a texture array. |
+| `SpriteSheet` | Plays named animations from a spritesheet atlas. |
+| `Graphics` | Imperative drawing API (`PIXI.Graphics`). |
+| `Circle` | Convenience wrapper to draw a circle. |
+| `Rectangle` | Convenience wrapper to draw a rectangle. |
+| `SpineProvider` | Loads and owns a Spine skeleton; provides spine context to children. |
+| `BaseSpineProvider` | Low-level Spine provider without asset wiring. |
+| `SpineTrack` | Sets and plays a Spine animation on a specific track index. |
+| `SpineBone` | Positions a container at a named Spine bone's world position. |
+| `SpineSlot` | Renders content at a named Spine slot. |
+| `SpineEventEmitterProvider` | Bridges Spine animation events to an event emitter. |
+| `ParticleContainer` | Optimized container for rendering large numbers of particles. |
+| `ParticleEmitter` | Emits particles using the `@barvynkoa/particle-emitter` config. |
+| `Particles` | Companion to `ParticleContainer` for particle management. |
+
+## createApp()
+
+Creates the reactive `stateApp` object that drives the `<App />` component and tracks asset loading.
+
+```ts
+import { createApp } from 'pixi-svelte';
+
+const { stateApp } = createApp({ assets });
+```
+
+### stateApp fields
+
+```ts
+const stateApp = $state({
+  reset,            // () => void — resets all fields to defaults
+  assets,           // Assets — asset manifest passed to createApp()
+  loaded: false,    // boolean — true once all assets have finished loading
+  loadingProgress: 0, // number — 0–100 loading progress value
+  loadedAssets: {} as LoadedAssets, // processed PIXI.Assets keyed by name
+  pixiApplication: undefined as PIXI.Application | undefined,
+});
+```
+
+`loadedAssets` is populated by `PIXI.Assets.load` and can be passed directly to `<Sprite />` and other pixi-svelte components.
+
+## ContextApp
+
+`stateApp` is shared with child components through Svelte context:
+
+```ts
+import { setContextApp, getContextApp } from 'pixi-svelte';
+
+// In entry component (e.g. +page.svelte or a story)
+setContextApp({ stateApp });
+
+// In any descendant component
+const { stateApp } = getContextApp();
+```
+
+The context key is `'@@pixi_svelte'`.
+
+<Note>
+`pixi-svelte` uses the **built** output in `dist/`. If you change any source file under `packages/pixi-svelte/src/`, rebuild before your changes take effect:
+
+```bash
+pnpm run build --filter=pixi-svelte
+```
+</Note>
+
+## Usage example
+
+```svelte
+<script lang="ts">
+  import { App, Container, Sprite, SpineProvider, SpineTrack } from 'pixi-svelte';
+  import { getContextApp } from 'pixi-svelte';
+
+  const { stateApp } = getContextApp();
+</script>
+
+<App>
+  {#if stateApp.loaded}
+    <Container x={100} y={100}>
+      <Sprite texture={stateApp.loadedAssets['background']} />
+      <SpineProvider key="character" width={256}>
+        <SpineTrack trackIndex={0} animationName="idle" loop />
+      </SpineProvider>
+    </Container>
+  {/if}
+</App>
+```

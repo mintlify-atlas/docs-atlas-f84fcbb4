@@ -1,0 +1,240 @@
+---
+title: 'createEventEmitter'
+description: 'Type-safe event emitter factory for connecting game logic to Svelte components'
+---
+
+`createEventEmitter` creates a typed pub/sub channel. Game logic calls `broadcast` or `broadcastAsync` to fire events; Svelte components subscribe via `subscribeOnMount` and automatically unsubscribe when they are destroyed.
+
+## Function signature
+
+```typescript
+function createEventEmitter<TEmitterEvent extends EmitterEventBase>(): {
+  eventEmitter: {
+    broadcast: (emitterEvent: TEmitterEvent) => void;
+    broadcastAsync: (emitterEvent: TEmitterEvent) => Promise<any[]>;
+    subscribeOnMount: (emitterEventHandlerMap: Partial<EmitterEventHandlerMap>) => void;
+  };
+}
+```
+
+### EmitterEventBase
+
+Every event type must extend `EmitterEventBase`:
+
+```typescript
+export type EmitterEventBase = {
+  type: string;
+};
+```
+
+The `type` field is the discriminant used to route events to handlers.
+
+## Parameters
+
+`createEventEmitter` takes no parameters. The event type is supplied as a TypeScript generic:
+
+```typescript
+const { eventEmitter } = createEventEmitter<EmitterEvent>();
+```
+
+## Return value
+
+<ResponseField name="eventEmitter" type="object">
+  An object with three methods.
+</ResponseField>
+
+### eventEmitter.broadcast
+
+```typescript
+broadcast(emitterEvent: TEmitterEvent): void
+```
+
+Fires an event **synchronously** — all subscriber callbacks are called in the order they were registered, without waiting for any return values. Use `broadcast` for fire-and-forget notifications where you do not need to wait for the subscriber to finish, such as showing or hiding UI elements and updating reactive state.
+
+```typescript
+eventEmitter.broadcast({ type: 'soundOnce', name: 'sfx_win' });
+eventEmitter.broadcast({ type: 'boardShow' });
+```
+
+### eventEmitter.broadcastAsync
+
+```typescript
+broadcastAsync(emitterEvent: TEmitterEvent): Promise<any[]>
+```
+
+Fires an event and returns a `Promise.all` over all subscriber return values. Use `broadcastAsync` when you need to **await** the completion of subscriber work before continuing — for example, waiting for an animation to finish, a countdown to complete, or a transition to resolve.
+
+```typescript
+// Wait for the win animation to complete before hiding the UI
+await eventEmitter.broadcastAsync({ type: 'winUpdate', amount: 500, winLevelData });
+
+// Wait for the screen transition before changing game state
+await eventEmitter.broadcastAsync({ type: 'transition' });
+```
+
+<Warning>
+  All subscribers are called with `Promise.all`. If any subscriber returns a rejected promise, `broadcastAsync` will reject. Ensure subscriber handlers handle their own errors where necessary.
+</Warning>
+
+### eventEmitter.subscribeOnMount
+
+```typescript
+subscribeOnMount(
+  emitterEventHandlerMap: Partial<{
+    [T in TEmitterEvent['type']]: (emitterEvent: Extract<TEmitterEvent, { type: T }>) => any;
+  }>
+): void
+```
+
+Registers a map of event handlers inside a Svelte component. Internally calls Svelte's `onMount`, which means:
+
+- Subscription is set up when the component mounts.
+- The unsubscribe function returned by the internal `subscribeHandlerMap` is called automatically by `onMount`'s cleanup when the component is destroyed.
+- You do **not** need to manage the subscription lifecycle manually.
+
+The handler map is partial — you only need to handle the event types relevant to that component.
+
+```typescript
+// Inside a Svelte component <script>
+eventEmitter.subscribeOnMount({
+  scoreUpdate: (event) => {
+    score = event.score;
+  },
+  scoreHide: () => {
+    visible = false;
+  },
+});
+```
+
+<Note>
+  `subscribeOnMount` must be called at the **top level** of a Svelte component's `<script>` block, not inside a callback or conditional. This is required because Svelte's `onMount` must be called synchronously during component initialisation.
+</Note>
+
+## Context helpers
+
+These functions from `utils-event-emitter/context` store and retrieve an `eventEmitter` instance in Svelte's component context, making it available to child components without prop-drilling.
+
+```typescript
+import { setContextEventEmitter, getContextEventEmitter } from 'utils-event-emitter';
+```
+
+### setContextEventEmitter
+
+```typescript
+function setContextEventEmitter<TEmitterEvent extends EmitterEventBase>(
+  value: { eventEmitter: ReturnType<typeof createEventEmitter<TEmitterEvent>>['eventEmitter'] }
+): void
+```
+
+Stores the emitter in Svelte context under the key `@@eventEmitter`. Call this in a parent component (typically the root game component) to make the emitter available to its entire subtree.
+
+### getContextEventEmitter
+
+```typescript
+function getContextEventEmitter<TEmitterEvent extends EmitterEventBase>(): {
+  eventEmitter: ReturnType<typeof createEventEmitter<TEmitterEvent>>['eventEmitter'];
+}
+```
+
+Retrieves the emitter from Svelte context. Call this in any child component that needs to subscribe to events. You must provide the same `TEmitterEvent` type to get full type safety.
+
+## Usage example
+
+```typescript
+// eventEmitter.ts — create and export the emitter
+import { createEventEmitter } from 'utils-event-emitter';
+
+type EmitterEvent =
+  | { type: 'scoreUpdate'; score: number }
+  | { type: 'scoreHide' }
+  | { type: 'animateScore'; target: number };
+
+export const { eventEmitter } = createEventEmitter<EmitterEvent>();
+```
+
+```svelte
+<!-- ScoreDisplay.svelte -->
+<script lang="ts">
+  import { eventEmitter } from './eventEmitter';
+
+  let score = $state(0);
+  let visible = $state(true);
+
+  // Subscribes on mount, unsubscribes automatically on destroy
+  eventEmitter.subscribeOnMount({
+    scoreUpdate: (event) => {
+      score = event.score;
+    },
+    scoreHide: () => {
+      visible = false;
+    },
+  });
+</script>
+
+{#if visible}
+  <p>Score: {score}</p>
+{/if}
+```
+
+```typescript
+// game.ts — broadcast from game logic
+import { eventEmitter } from './eventEmitter';
+
+// Fire-and-forget: update score reactively
+eventEmitter.broadcast({ type: 'scoreUpdate', score: 100 });
+
+// Await animation completion before continuing
+await eventEmitter.broadcastAsync({ type: 'animateScore', target: 100 });
+
+// Hide the score display
+eventEmitter.broadcast({ type: 'scoreHide' });
+```
+
+### Using context
+
+```svelte
+<!-- Game.svelte — root component -->
+<script lang="ts">
+  import { setContextEventEmitter } from 'utils-event-emitter';
+  import { eventEmitter } from './eventEmitter';
+
+  setContextEventEmitter({ eventEmitter });
+</script>
+```
+
+```svelte
+<!-- ScoreDisplay.svelte — child component -->
+<script lang="ts">
+  import { getContextEventEmitter } from 'utils-event-emitter';
+  import type { EmitterEvent } from './eventEmitter';
+
+  const { eventEmitter } = getContextEventEmitter<EmitterEvent>();
+
+  eventEmitter.subscribeOnMount({
+    scoreUpdate: (event) => { score = event.score; },
+  });
+</script>
+```
+
+### Real-world pattern (from the Lines game)
+
+The Lines game creates a single emitter that is shared across all game logic and UI components:
+
+```typescript
+// apps/lines/src/game/eventEmitter.ts
+import { createEventEmitter } from 'utils-event-emitter';
+import type { EmitterEventHotKey } from 'components-shared';
+import type { EmitterEventUi } from 'components-ui-pixi';
+import type { EmitterEventModal } from 'components-ui-html';
+import type { EmitterEventGame } from './typesEmitterEvent';
+
+export type EmitterEvent =
+  | EmitterEventHotKey
+  | EmitterEventUi
+  | EmitterEventModal
+  | EmitterEventGame;
+
+export const { eventEmitter } = createEventEmitter<EmitterEvent>();
+```
+
+The union type aggregates event definitions from every package that contributes events. Each package exports its own `EmitterEvent*` type, keeping event definitions co-located with the components that handle them.

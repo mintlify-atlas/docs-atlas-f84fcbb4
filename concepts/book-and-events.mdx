@@ -1,0 +1,216 @@
+---
+title: "Books and BookEvents"
+description: "How the RGS communicates game outcomes through books and bookEvents"
+---
+
+The RGS (Remote Game Server) communicates the result of every bet as a **book** — a JSON object containing an ordered array of **bookEvents**. Each bookEvent describes one discrete step of the round, and the SDK plays them sequentially to drive the game.
+
+## What is a Book?
+
+A book is the JSON payload returned by the RGS for a single bet request. It is randomly selected from millions of pre-computed outcomes produced by the [math SDK](https://stakeengine.github.io/math-sdk/math_docs/general_overview/). Its most important field is `events`: an ordered array of bookEvents that determines everything that happens during the round.
+
+```json
+// base_books.ts — example base-game book
+{
+  "id": 1,
+  "payoutMultiplier": 0.0,
+  "events": [
+    {
+      "index": 0,
+      "type": "reveal",
+      "board": [
+        [{ "name": "L2" }, { "name": "L1" }, { "name": "L4" }, { "name": "H2" }, { "name": "L1" }],
+        [{ "name": "H1" }, { "name": "L5" }, { "name": "L2" }, { "name": "H3" }, { "name": "L4" }],
+        [{ "name": "L3" }, { "name": "L5" }, { "name": "L3" }, { "name": "H4" }, { "name": "L4" }],
+        [{ "name": "H4" }, { "name": "H3" }, { "name": "L4" }, { "name": "L5" }, { "name": "L1" }],
+        [{ "name": "H3" }, { "name": "L3" }, { "name": "L3" }, { "name": "H1" }, { "name": "H1" }]
+      ],
+      "paddingPositions": [216, 205, 195, 16, 65],
+      "gameType": "basegame",
+      "anticipation": [0, 0, 0, 0, 0]
+    },
+    { "index": 1, "type": "setTotalWin", "amount": 0 },
+    { "index": 2, "type": "finalWin", "amount": 0 }
+  ],
+  "criteria": "0",
+  "baseGameWins": 0.0,
+  "freeGameWins": 0.0
+}
+```
+
+<Note>
+The **order of bookEvents matters**. The SDK plays them one after another using `sequence()`, so placing `winInfo` before `reveal` would show win highlights before the reels spin. The math SDK controls this ordering.
+</Note>
+
+## What is a BookEvent?
+
+A bookEvent is one element of `book.events`. Every bookEvent has a `type` string field and whatever additional data that event type needs.
+
+```typescript
+// typesBookEvent.ts — example bookEvent types from apps/lines
+
+type BookEventReveal = {
+  index: number;
+  type: 'reveal';
+  board: RawSymbol[][];
+  paddingPositions: number[];
+  anticipation: number[];
+  gameType: GameType;
+};
+
+type BookEventSetTotalWin = {
+  index: number;
+  type: 'setTotalWin';
+  amount: number;
+};
+
+type BookEventWinInfo = {
+  index: number;
+  type: 'winInfo';
+  totalWin: number;
+  wins: {
+    symbol: SymbolName;
+    kind: number;
+    win: number;
+    positions: Position[];
+    meta: {
+      lineIndex: number;
+      multiplier: number;
+      winWithoutMult: number;
+      globalMult: number;
+      lineMultiplier: number;
+    };
+  }[];
+};
+
+type BookEventFreeSpinTrigger = {
+  index: number;
+  type: 'freeSpinTrigger';
+  totalFs: number;
+  positions: Position[];
+};
+```
+
+All bookEvent types are collected into a single union type:
+
+```typescript
+// typesBookEvent.ts
+export type BookEvent =
+  | BookEventReveal
+  | BookEventWinInfo
+  | BookEventSetTotalWin
+  | BookEventFreeSpinTrigger
+  | BookEventUpdateFreeSpin
+  | BookEventCreateBonusSnapshot
+  | BookEventFinalWin
+  | BookEventSetWin
+  | BookEventFreeSpinEnd;
+
+export type BookEventOfType<T> = Extract<BookEvent, { type: T }>;
+export type BookEventContext = { bookEvents: BookEvent[] };
+```
+
+### `BookEventOfType<T>`
+
+`BookEventOfType<T>` is a TypeScript utility type that narrows `BookEvent` to the specific type matching the given `type` string. Use it to get full type-safety inside a handler:
+
+```typescript
+reveal: async (bookEvent: BookEventOfType<'reveal'>) => {
+  // bookEvent.board is typed as RawSymbol[][]
+  // bookEvent.gameType is typed as GameType
+}
+```
+
+## bookEventHandlerMap
+
+`bookEventHandlerMap` is an object where each key is a `bookEvent.type` string and each value is an async handler function. When `playBookEvents()` encounters a bookEvent, it looks up the handler by `bookEvent.type` and awaits it.
+
+```typescript
+// apps/lines/src/game/bookEventHandlerMap.ts
+
+export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContext> = {
+  reveal: async (bookEvent: BookEventOfType<'reveal'>, { bookEvents }: BookEventContext) => {
+    const isBonusGame = checkIsMultipleRevealEvents({ bookEvents });
+    if (isBonusGame) {
+      eventEmitter.broadcast({ type: 'stopButtonEnable' });
+      recordBookEvent({ bookEvent });
+    }
+    stateGame.gameType = bookEvent.gameType;
+    await stateGameDerived.enhancedBoard.spin({
+      revealEvent: bookEvent,
+      paddingBoard: config.paddingReels[bookEvent.gameType],
+    });
+    eventEmitter.broadcast({ type: 'soundScatterCounterClear' });
+  },
+
+  winInfo: async (bookEvent: BookEventOfType<'winInfo'>) => {
+    eventEmitter.broadcast({ type: 'soundOnce', name: 'sfx_winlevel_small' });
+    await sequence(bookEvent.wins, async (win) => {
+      await animateSymbols({ positions: win.positions });
+    });
+  },
+
+  setTotalWin: async (bookEvent: BookEventOfType<'setTotalWin'>) => {
+    stateBet.winBookEventAmount = bookEvent.amount;
+  },
+
+  updateFreeSpin: async (bookEvent: BookEventOfType<'updateFreeSpin'>) => {
+    eventEmitter.broadcast({ type: 'freeSpinCounterShow' });
+    eventEmitter.broadcast({
+      type: 'freeSpinCounterUpdate',
+      current: bookEvent.amount + 1,
+      total: bookEvent.total,
+    });
+  },
+};
+```
+
+<Tip>
+Handlers broadcast **emitterEvents** to Svelte components rather than manipulating the DOM directly. This keeps game logic decoupled from the rendering layer. See [Event Emitter](/concepts/event-emitter) for how that works.
+</Tip>
+
+## How `playBookEvents()` Works
+
+`playBookEvents()` is created by `packages/utils-book/src/createPlayBookUtils.ts`. It iterates the `book.events` array and processes each bookEvent in strict sequence using `sequence()` — an async helper that resolves promises one at a time (unlike `Promise.all()`, which would fire everything at once).
+
+```
+book.events
+  └─ [reveal, setTotalWin, winInfo, finalWin]
+        │
+        ▼
+  playBookEvents()
+        │
+        ├─ await playBookEvent(reveal, context)   → resolves → next
+        ├─ await playBookEvent(setTotalWin, ctx)  → resolves → next
+        ├─ await playBookEvent(winInfo, ctx)      → resolves → next
+        └─ await playBookEvent(finalWin, ctx)     → resolves → done
+```
+
+`playBookEvent()` resolves a single bookEvent by looking up its handler in `bookEventHandlerMap` and awaiting it. It is also used directly in storybook stories (`MODE_BASE/bookEvent/reveal`) to test individual bookEvents in isolation.
+
+## Stateless vs Stateful Games
+
+<AccordionGroup>
+  <Accordion title="Stateless games">
+    A single RGS request covers the complete round. Slots are the canonical example: one `requestBet` call returns a book, `playBookEvents()` plays it, and the round is done.
+
+    Stateless games can still be complex — they can have many bookEvent types, multiple game modes, multipliers, and bonus triggers — but everything needed to play the full round is contained in a single book.
+  </Accordion>
+  <Accordion title="Stateful games">
+    Multiple RGS requests are needed to complete a round. A mines game is the canonical example: the player reveals tiles one at a time, each reveal is a separate RGS request, and the round is only finished when the player cashes out or hits a mine.
+
+    For stateful games the `resumeBet` state in the XState machine is essential — it allows the game to re-enter an in-progress round after a page reload. See [Game State Machine](/concepts/state-machine) for details.
+  </Accordion>
+</AccordionGroup>
+
+## Adding a New BookEvent
+
+The recommended workflow for adding a new bookEvent type (e.g. `updateGlobalMult`) is:
+
+1. **Add sample data** to `apps/lines/src/stories/data/bonus_books.ts` and `bonus_events.ts`
+2. **Add the story** to `ModeBonusBookEvent.stories.svelte`
+3. **Define the type** in `typesBookEvent.ts` and extend the `BookEvent` union
+4. **Add the handler** to `bookEventHandlerMap.ts`
+5. **Create or update the Svelte component** that subscribes to the emitterEvents the handler broadcasts
+6. **Test individually** via `MODE_BONUS/bookEvent/updateGlobalMult` in Storybook
+7. **Test in books** via `MODE_BONUS/book/random` in Storybook

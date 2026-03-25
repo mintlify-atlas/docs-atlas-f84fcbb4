@@ -1,97 +1,84 @@
 ---
-title: "Introduction"
-description: "Welcome to the new home for your documentation"
+title: "Stake Engine Web SDK"
+description: "Build and deploy casino games declaratively using Svelte 5, PixiJS 8, and XState — then launch instantly on the Stake Engine platform."
 ---
 
-## Setting up
+The Stake Engine Web SDK is a batteries-included framework for building high-quality, production-ready casino games for the web. It combines the reactivity of Svelte 5, the rendering power of PixiJS 8, and the state management of XState into a single declarative programming model.
 
-Get your documentation site up and running in minutes.
+Games built with this SDK can be deployed directly to [Stake Engine](https://engine.stake.com/) — a managed Remote Game Server (RGS) platform — with minimal configuration.
 
-<Card
-  title="Start here"
-  icon="rocket"
-  href="/quickstart"
-  horizontal
->
-  Follow our three step quickstart guide.
-</Card>
-
-## Make it yours
-
-Design a docs site that looks great and empowers your users.
-
-<Columns cols={2}>
-  <Card
-    title="Edit locally"
-    icon="pen-to-square"
-    href="/development"
-  >
-    Edit your docs locally and preview them in real time.
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Install dependencies, run the sample game in Storybook, and play your first round in under 10 minutes.
   </Card>
-  <Card
-    title="Customize your site"
-    icon="palette"
-    href="/essentials/settings"
-  >
-    Customize the design and colors of your site to match your brand.
+  <Card title="Core Concepts" icon="lightbulb" href="/concepts/book-and-events">
+    Understand books, bookEvents, emitterEvents, and the event-driven game loop that powers every game.
   </Card>
-    <Card
-    title="Set up navigation"
-    icon="map"
-    href="/essentials/navigation"
-  >
-    Organize your docs to help users find what they need and succeed with your product.
+  <Card title="Add a BookEvent" icon="code" href="/guides/adding-a-book-event">
+    Step-by-step guide to extending a game with a new bookEvent and wiring it to Svelte components.
   </Card>
-  <Card
-    title="API documentation"
-    icon="terminal"
-    href="/api-reference/introduction"
-  >
-    Auto-generate API documentation from OpenAPI specifications.
+  <Card title="API Reference" icon="rectangle-terminal" href="/api/app">
+    Complete reference for all pixi-svelte components, utility functions, and the RGS fetcher.
   </Card>
-</Columns>
+</CardGroup>
 
-## Create beautiful pages
+## How it works
 
-Everything you need to create world-class documentation.
+The SDK models each game round as a **book** — a JSON payload returned by the RGS that contains an ordered array of **bookEvents** (e.g., `reveal`, `winInfo`, `freeSpinTrigger`). Your game processes each bookEvent sequentially, broadcasting **emitterEvents** to Svelte components that handle animations, UI updates, and audio.
 
-<Columns cols={2}>
-  <Card
-    title="Write with MDX"
-    icon="pen-fancy"
-    href="/essentials/markdown"
-  >
-    Use MDX to style your docs pages.
-  </Card>
-  <Card
-    title="Code samples"
-    icon="code"
-    href="/essentials/code"
-  >
-    Add sample code to demonstrate how to use your product.
-  </Card>
-  <Card
-    title="Images"
-    icon="image"
-    href="/essentials/images"
-  >
-    Display images and other media.
-  </Card>
-  <Card
-    title="Reusable snippets"
-    icon="recycle"
-    href="/essentials/reusable-snippets"
-  >
-    Write once and reuse across your docs.
-  </Card>
-</Columns>
+<Steps>
+  <Step title="RGS returns a book">
+    The Remote Game Server responds to a bet request with a `book` — a JSON object containing the game outcome as an ordered array of `bookEvents`.
+  </Step>
+  <Step title="playBookEvents() processes each event">
+    `playBookEvents()` iterates through the array in order, calling the matching handler in your `bookEventHandlerMap` for each event.
+  </Step>
+  <Step title="Handlers broadcast emitterEvents">
+    Each `bookEventHandler` calls `eventEmitter.broadcast()` or `eventEmitter.broadcastAsync()` to send typed events to subscribed Svelte components.
+  </Step>
+  <Step title="Components animate and update">
+    Svelte components subscribe via `eventEmitter.subscribeOnMount()` and react to emitterEvents — playing animations, updating counters, and triggering audio.
+  </Step>
+</Steps>
 
-## Need inspiration?
+## Sample games
 
-<Card
-  title="See complete examples"
-  icon="stars"
-  href="https://mintlify.com/customers"
->
-  Browse our showcase of exceptional documentation sites.
-</Card>
+The SDK ships with five fully-implemented reference games you can run, study, and fork:
+
+<CardGroup cols={3}>
+  <Card title="lines" icon="chart-line" href="/quickstart">
+    Classic payline slots with free spin bonus mode.
+  </Card>
+  <Card title="cluster" icon="grid" href="/quickstart">
+    Cluster-pay mechanic with tumble/cascade support.
+  </Card>
+  <Card title="scatter" icon="circle-dot" href="/quickstart">
+    Scatter-pay game with anticipation animations.
+  </Card>
+  <Card title="ways" icon="arrows-split-up-and-left" href="/quickstart">
+    All-ways-pay slots mechanic.
+  </Card>
+  <Card title="price" icon="tag" href="/quickstart">
+    Price-based game variant.
+  </Card>
+  <Card title="number-picker" icon="dice" href="/quickstart">
+    Number selection game type.
+  </Card>
+</CardGroup>
+
+## Key packages
+
+<CardGroup cols={2}>
+  <Card title="pixi-svelte" icon="layer-group" href="/packages/pixi-svelte">
+    Svelte 5 components wrapping PixiJS 8 primitives: `App`, `Container`, `Sprite`, `SpineProvider`, `ParticleEmitter`, and more.
+  </Card>
+  <Card title="utils-event-emitter" icon="tower-broadcast" href="/packages/utils-event-emitter">
+    The typed event bus connecting JavaScript game logic to Svelte component trees.
+  </Card>
+  <Card title="utils-xstate" icon="diagram-project" href="/packages/utils-xstate">
+    XState-powered finite state machine managing bet, autoBet, and resumeBet game flows.
+  </Card>
+  <Card title="utils-book" icon="book" href="/packages/utils-book">
+    `createPlayBookUtils()` for sequential bookEvent processing with full TypeScript inference.
+  </Card>
+</CardGroup>

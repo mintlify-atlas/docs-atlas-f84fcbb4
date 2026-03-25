@@ -1,0 +1,204 @@
+---
+title: "Context System"
+description: "How Svelte context connects apps, packages, and shared state"
+---
+
+The Web SDK uses [Svelte context](https://svelte.dev/docs/svelte/context) to share typed state between an app and the packages it depends on. Rather than prop-drilling or a global singleton, context is set once at the entry point of the app and read by any descendant component — including components inside `packages/*`.
+
+## Why Svelte Context?
+
+Some shared state requires **typed inputs** to create (e.g. the `EmitterEvent` union type, or the `assets` configuration). This makes plain global variables impractical. Svelte context lets the app provide its concrete typed instances, which packages then consume through typed `getContext` helpers — without either side needing to know about the other's internals.
+
+<Note>
+Context is hierarchical: only **descendant** components can access a context set by a parent. This is why `setContext()` is called at the entry level of the app.
+</Note>
+
+## Setting Context at the Entry Level
+
+In `apps/lines`, context is set once in `context.ts` and called from the entry component:
+
+```typescript
+// apps/lines/src/game/context.ts
+
+import { setContextEventEmitter, getContextEventEmitter } from 'utils-event-emitter';
+import { setContextXstate,      getContextXstate      } from 'utils-xstate';
+import { setContextLayout,      getContextLayout      } from 'utils-layout';
+import { setContextApp,         getContextApp         } from 'pixi-svelte';
+
+import { eventEmitter, type EmitterEvent } from './eventEmitter';
+import { stateXstate, stateXstateDerived } from './stateXstate';
+import { stateLayout, stateLayoutDerived } from './stateLayout';
+import { stateApp }                        from './stateApp';
+import { stateGame, stateGameDerived }     from './stateGame.svelte';
+import { i18nDerived }                     from '../i18n/i18nDerived';
+
+export const setContext = () => {
+  setContextEventEmitter<EmitterEvent>({ eventEmitter });
+  setContextXstate({ stateXstate, stateXstateDerived });
+  setContextLayout({ stateLayout, stateLayoutDerived });
+  setContextApp({ stateApp });
+};
+
+export const getContext = () => ({
+  ...getContextEventEmitter<EmitterEvent>(),
+  ...getContextLayout(),
+  ...getContextXstate(),
+  ...getContextApp(),
+  stateGame,
+  stateGameDerived,
+  i18nDerived,
+});
+```
+
+Then in the SvelteKit page entry and in every Storybook story that renders the full game:
+
+```svelte
+<!-- apps/lines/src/routes/+page.svelte -->
+
+<script lang="ts">
+  import Game from '../components/Game.svelte';
+  import { setContext } from '../game/context';
+
+  setContext();
+</script>
+
+<Game />
+```
+
+<Warning>
+If `setContext()` is not called before `<Game />` renders, any component or package that calls `getContext()` will throw an error. Storybook stories that render `<Game />` must also call `setContext()` first.
+</Warning>
+
+## The Four Contexts
+
+### ContextEventEmitter
+
+Provides the typed `eventEmitter` instance. The generic type parameter pins the emitter to the game's concrete `EmitterEvent` union, giving full TypeScript intellisense for `broadcast`, `broadcastAsync`, and `subscribeOnMount`.
+
+```typescript
+// set
+setContextEventEmitter<EmitterEvent>({ eventEmitter });
+
+// get (inside any descendant component)
+const { eventEmitter } = getContextEventEmitter<EmitterEvent>();
+```
+
+See [Event Emitter](/concepts/event-emitter) for full documentation.
+
+---
+
+### ContextXstate
+
+Provides the XState state and its derived helpers. Created by `createXstate()` from `utils-xstate`.
+
+```typescript
+// apps/lines/src/game/stateXstate.ts
+import { createXstate } from 'utils-xstate';
+export const { stateXstate, stateXstateDerived } = createXstate();
+```
+
+| Property | Type | Description |
+|---|---|---|
+| `stateXstate` | `{ value: StateValue }` | Svelte `$state` holding the raw XState state value |
+| `stateXstateDerived` | `object` | Plain functions — `isIdle()`, `isBetting()`, `isPlaying()`, etc. |
+
+See [Game State Machine](/concepts/state-machine) for full documentation.
+
+---
+
+### ContextLayout
+
+Provides canvas size and layout information. Created by `createLayout()` from `utils-layout`. Because `PIXI.Application` is configured with `resizeTo: window`, the canvas is always the size of the browser window — this context exposes reactive derivations of that.
+
+```typescript
+// packages/utils-layout/src/createLayout.svelte.ts
+
+import { innerWidth, innerHeight } from 'svelte/reactivity/window';
+
+const stateLayout = $state({
+  showLoadingScreen: true,
+});
+
+const stateLayoutDerived = {
+  canvasSizes,          // () => { width, height } — reactive window dimensions
+  canvasRatio,          // () => width / height
+  canvasRatioType,      // () => 'longWidth' | 'longHeight' | 'almostSquare'
+  canvasSizeType,       // () => 'smallMobile' | 'mobile' | 'tablet' | 'largeTablet' | 'desktop'
+  layoutType,           // () => 'portrait' | 'landscape' | 'tablet' | 'desktop'
+  isStacked,            // () => boolean — true for portrait and almostSquare
+  mainLayout,           // () => { x, y, scale, width, height, anchor }
+  mainLayoutStandard,   // same as mainLayout but uses the standard 1920×1080 reference sizes
+  normalBackgroundLayout,   // ({ scale }) => background positioning object
+  portraitBackgroundLayout, // ({ scale }) => background positioning object
+};
+```
+
+**Why layout context matters for PixiJS**: Unlike HTML elements which auto-flow, PixiJS requires manual positioning. `canvasSizes` provides the boundaries every component needs to place itself correctly.
+
+```svelte
+<!-- Position a component at the right edge of the canvas -->
+<Component
+  x={context.stateLayoutDerived.canvasSizes().width}
+  anchor={{ x: 1, y: 0 }}
+/>
+```
+
+`layoutType` breakpoints are derived from the canvas aspect ratio and size:
+
+| `layoutType` | Condition |
+|---|---|
+| `portrait` | Aspect ratio ≤ 0.8 (tall, narrow — mobile portrait) |
+| `tablet` | Aspect ratio between 0.8 and 1.3 (near-square) |
+| `landscape` | Aspect ratio > 1.3 AND small screen width |
+| `desktop` | Aspect ratio > 1.3 AND large screen width |
+
+`isStacked` returns `true` for `portrait` and `almostSquare` layouts, which is useful for stacking UI elements vertically.
+
+---
+
+### ContextApp
+
+Provides the PixiJS application state. Created by `createApp()` from `pixi-svelte`.
+
+```typescript
+// apps/lines/src/game/stateApp.ts
+import { createApp } from 'pixi-svelte';
+import assets from './assets';
+
+export const { stateApp } = createApp({ assets });
+```
+
+```typescript
+// packages/pixi-svelte/src/lib/createApp.svelte.ts
+
+const stateApp = $state({
+  reset,                                         // () => void — resets all fields to initial values
+  assets,                                        // Assets config passed to createApp()
+  loaded: false,                                 // true once PIXI.Assets.load() completes
+  loadingProgress: 0,                            // 0–100 loading progress
+  loadedAssets: {} as LoadedAssets,              // processed asset data ready for pixi-svelte components
+  pixiApplication: undefined as PIXI.Application | undefined, // the live PIXI.Application instance
+});
+```
+
+| Field | Description |
+|---|---|
+| `loaded` | `true` after all assets have finished loading. Used to gate the transition from loading screen to game. |
+| `loadingProgress` | Number from 0–100. Drive a progress bar from this value. |
+| `loadedAssets` | The result of `PIXI.Assets.load()`. Passed directly to pixi-svelte components like `<Sprite />` and `<SpineProvider />`. |
+| `pixiApplication` | The `PIXI.Application` instance. Available after `<App />` mounts. |
+
+## How Packages Consume Context
+
+Packages never call `setContext` — they only call `getContext`. For example, `components-layout` uses `getContextLayout()` from `utils-layout`:
+
+```typescript
+// Inside a component in packages/components-layout
+import { getContextLayout } from 'utils-layout';
+
+const { stateLayout, stateLayoutDerived } = getContextLayout();
+```
+
+This works because the `<App />` from `pixi-svelte` — which is always an ancestor of layout components — was rendered inside a component tree where `setContextLayout()` was already called.
+
+The same pattern applies for all four contexts: the app sets them once at the root; any descendant (whether in the app or in a package) reads them with the corresponding `getContext*()` helper.

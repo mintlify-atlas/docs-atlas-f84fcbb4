@@ -1,0 +1,207 @@
+---
+title: "utils-slots"
+description: "Slot machine mechanics: reel creation and board spinning utilities"
+---
+
+`utils-slots` provides the low-level reel and board primitives for slot machine games. It ships two reel types (spinning and cascading), a board enhancement layer, and shared slot state.
+
+## Reel types
+
+### createReelForSpinning()
+
+Creates a reel that animates by sliding symbols downward into view — the classic slot machine spin mechanic.
+
+```ts
+import { createReelForSpinning } from 'utils-slots';
+
+const reel = createReelForSpinning<TRawSymbol, TSymbolState>(reelOptions);
+```
+
+**Options (`SpinningReelCreateOptions`):**
+
+```ts
+type SpinningReelCreateOptions<TRawSymbol, TSymbolState> = {
+  initialSymbols:    TRawSymbol[];       // starting symbols on this reel
+  initialSymbolState: TSymbolState;     // initial render state of each symbol
+  reelIndex:         number;            // 0-based column index (used for stagger delay)
+  symbolHeight:      number;            // height in pixels of each symbol slot
+  onReelStopping:    () => void;        // called when reel begins to decelerate
+  onSymbolLand:      (args: { rawSymbol: TRawSymbol }) => void; // called per symbol on landing
+};
+```
+
+**Return value:**
+
+```ts
+{
+  reelIndex:          number;
+  symbolHeight:       number;
+  onReelStopping:     () => void;
+  reelLength:         number;
+  reelState:          SpinningReelState;  // reactive $state
+  preSpin:            (options) => Promise<void>;    // begins the pre-spin loop
+  prepareToSpin:      (options) => number;           // loads target symbols, returns paddingSize
+  spin:               () => Promise<void>;           // executes the spin animation
+  stop:               () => void;                    // interrupts mid-spin (turbo)
+  setSymbolsWithRawSymbols: (rawSymbols?) => void;   // set symbols without animation
+  readyToSpinEffect:  () => void;                    // registers $effect to signal ready
+}
+```
+
+**`reelState` fields:**
+
+```ts
+const reelState = $state({
+  symbols:     ReelSymbol[];           // current symbols in view + padding
+  motion:      'stopped' | 'spinning' | 'bouncing';
+  spinType:    'normal' | 'fast' | 'anticipated';
+  anticipating: boolean;               // true while waiting for an anticipated reel
+  readyToSpin:  () => void;            // resolved when reel is positioned at defaultY
+  spinOptions:  () => SpinningReelSpinOptions;
+});
+```
+
+**Spin type options (`SpinningReelSpinOptions`):**
+
+```ts
+type SpinningReelSpinOptions = {
+  reelPreSpinSpeed:              number; // px/ms — pre-spin slide speed
+  reelBounceBackSpeed:           number; // px/ms — bounce back after stop
+  reelSpinSpeed:                 number; // px/ms — main spin speed
+  reelSpinSpeedBeforeBounce:     number; // px/ms — deceleration before bounce
+  reelBounceSizeMulti:           number; // multiplier of symbolHeight for bounce distance
+  reelPaddingMultiplierNormal:   number; // extra padding symbols for normal spin
+  reelPaddingMultiplierAnticipated: number;
+  reelSpinDelay:                 number; // ms — stagger delay between reels
+};
+```
+
+### createReelForCascading()
+
+Creates a reel that animates symbols falling out downward and new symbols falling in from above — the cascade/tumble mechanic.
+
+```ts
+import { createReelForCascading } from 'utils-slots';
+
+const reel = createReelForCascading<TRawSymbol, TSymbolState>(reelOptions);
+```
+
+The API surface is identical to `createReelForSpinning` (same `preSpin`, `prepareToSpin`, `spin`, `stop`, `setSymbolsWithRawSymbols`, `readyToSpinEffect` methods).
+
+The cascading reel exposes a `CascadingReelMotion` state: `'fallingOut' | 'hanging' | 'fallingIn' | 'stopped'`.
+
+**Cascading spin options (`CascadingReelSpinOptions`):**
+
+```ts
+type CascadingReelSpinOptions = {
+  symbolFallInSpeed:          number; // px/ms
+  symbolFallInInterval:       number; // ms between symbols falling in
+  symbolFallInBounceSpeed:    number;
+  symbolFallInBounceSizeMulti: number;
+  symbolFallOutSpeed:         number;
+  symbolFallOutInterval:      number;
+  reelFallInDelay:            number; // ms delay before reel starts falling in
+  reelPaddingMultiplierNormal: number;
+  reelPaddingMultiplierAnticipated: number;
+  reelFallOutDelay:           number;
+};
+```
+
+## Board enhancement layer
+
+The board enhancement layer wraps an array of reels and coordinates spin timing, anticipation, and pre-spin across all columns.
+
+### createEnhanceBoard()
+
+Returns an `enhanceBoard` function that adds `preSpin`, `spin`, `settle`, `stop`, and `readyToSpinEffect` to any array of reels:
+
+```ts
+import { createEnhanceBoard } from 'utils-slots';
+
+const { enhanceBoard } = createEnhanceBoard();
+
+const board = enhanceBoard({ board: myReelsArray });
+// board: { board, preSpin, spin, settle, stop, readyToSpinEffect }
+```
+
+### preSpin (createEnhanceBoardPreSpin)
+
+Starts the pre-spin animation loop on all reels simultaneously. Sets `stateSlots.isPreSpinning = true`:
+
+```ts
+const preSpin = async ({ paddingBoard }: { paddingBoard?: TRawSymbol[][] }) => void;
+```
+
+The pre-spin loop continues until `spin()` is called. Turbo mode is captured at pre-spin start so it applies uniformly to all reels.
+
+### spin (createEnhanceBoardSpin)
+
+Stops the pre-spin loop and drives all reels to their target symbols. Handles anticipation and turbo automatically:
+
+```ts
+async function spin<RevealEvent extends BaseRevealEvent>({
+  revealEvent,
+  paddingBoard,
+}: {
+  revealEvent: RevealEvent; // must include board, anticipation, paddingPositions
+  paddingBoard?: TRawSymbol[][];
+}): Promise<void>
+```
+
+Anticipation is driven by `revealEvent.anticipation` — an array of numbers, one per reel. Reels after the first anticipated reel set `noStop = true` so they keep spinning until explicitly released.
+
+### settle
+
+Resets all reels to the provided raw board without animation (used after bonus entry, tumble settle, etc.):
+
+```ts
+const settle = (rawBoard?: TRawSymbol[][]) => void;
+```
+
+## stateSlots
+
+Shared slot state readable from any component:
+
+```ts
+import { stateSlots } from 'utils-slots';
+
+// stateSlots.isPreSpinning — true while reels are in the pre-spin loop
+```
+
+## createGetEmptyPaddedBoard()
+
+Utility to create an empty board grid (with 2 padding rows per reel for cascading reels):
+
+```ts
+import { createGetEmptyPaddedBoard } from 'utils-slots';
+
+const { getEmptyBoard } = createGetEmptyPaddedBoard({
+  reelsDimensions: { x: 5, y: 3 }, // 5 reels, 3 visible symbols each
+});
+
+const emptyBoard = getEmptyBoard();
+// Returns: TRawSymbol[][] with null values, shape [5][5] (3 + 2 padding rows)
+```
+
+## Type reference
+
+```ts
+export type SpinType = 'normal' | 'fast' | 'anticipated';
+
+export type SpinningReel<TRawSymbol, TSymbolState> = ReturnType<
+  typeof createReelForSpinning<TRawSymbol, TSymbolState>
+>;
+
+export type CascadingReel<TRawSymbol, TSymbolState> = ReturnType<
+  typeof createReelForCascading<TRawSymbol, TSymbolState>
+>;
+
+export type Reel<TRawSymbol, TSymbolState> =
+  | SpinningReel<TRawSymbol, TSymbolState>
+  | CascadingReel<TRawSymbol, TSymbolState>;
+
+// Extract TRawSymbol from a reel type
+export type GetRawSymbolFromReel<TReel extends Reel<any, any>> = NonNullable<
+  FirstArgOf<TReel['setSymbolsWithRawSymbols']>
+>[number];
+```

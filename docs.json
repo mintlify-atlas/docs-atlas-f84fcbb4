@@ -1,122 +1,97 @@
 {
   "$schema": "https://mintlify.com/docs.json",
-  "theme": "mint",
-  "name": "Mint Starter Kit",
+  "name": "Stake Engine Web SDK",
+  "theme": "aspen",
   "colors": {
-    "primary": "#16A34A",
-    "light": "#07C983",
-    "dark": "#15803D"
+    "primary": "#061625",
+    "light": "#7c8c8e",
+    "dark": "#d2d7d9"
   },
   "favicon": "/favicon.svg",
+  "logo": {
+    "light": "https://media.brand.dev/73724ea9-d59f-4888-8699-b14da91a6074.png",
+    "dark": "https://media.brand.dev/73724ea9-d59f-4888-8699-b14da91a6074.png"
+  },
+  "navbar": {
+    "primary": {
+      "type": "github",
+      "href": "https://github.com/StakeEngine/web-sdk"
+    }
+  },
+  "footer": {
+    "socials": {
+      "github": "https://github.com/StakeEngine/web-sdk"
+    }
+  },
   "navigation": {
     "tabs": [
       {
-        "tab": "Guides",
+        "tab": "Documentation",
         "groups": [
           {
-            "group": "Getting started",
+            "group": "Get Started",
             "pages": [
-              "index",
+              "introduction",
               "quickstart",
-              "development"
+              "building-and-launching"
             ]
           },
           {
-            "group": "Customization",
+            "group": "Core Concepts",
             "pages": [
-              "essentials/settings",
-              "essentials/navigation"
+              "concepts/book-and-events",
+              "concepts/event-emitter",
+              "concepts/state-machine",
+              "concepts/context-system"
             ]
           },
           {
-            "group": "Writing content",
+            "group": "Guides",
             "pages": [
-              "essentials/markdown",
-              "essentials/code",
-              "essentials/images",
-              "essentials/reusable-snippets"
+              "guides/adding-a-book-event",
+              "guides/task-breakdown",
+              "guides/storybook-testing",
+              "guides/ui-and-i18n"
             ]
           },
           {
-            "group": "AI tools",
+            "group": "Packages",
             "pages": [
-              "ai-tools/cursor",
-              "ai-tools/claude-code",
-              "ai-tools/windsurf"
+              "packages/overview",
+              "packages/pixi-svelte",
+              "packages/utils-book",
+              "packages/utils-event-emitter",
+              "packages/utils-xstate",
+              "packages/utils-layout",
+              "packages/utils-slots",
+              "packages/utils-sound"
             ]
           }
         ]
       },
       {
-        "tab": "API reference",
+        "tab": "API Reference",
         "groups": [
           {
-            "group": "API documentation",
+            "group": "pixi-svelte Components",
             "pages": [
-              "api-reference/introduction"
+              "api/app",
+              "api/container-and-graphics",
+              "api/sprite-and-text",
+              "api/spine",
+              "api/particles"
             ]
           },
           {
-            "group": "Endpoint examples",
+            "group": "Game Utilities",
             "pages": [
-              "api-reference/endpoint/get",
-              "api-reference/endpoint/create",
-              "api-reference/endpoint/delete",
-              "api-reference/endpoint/webhook"
+              "api/create-play-book-utils",
+              "api/create-event-emitter",
+              "api/rgs-fetcher"
             ]
           }
         ]
       }
-    ],
-    "global": {
-      "anchors": [
-        {
-          "anchor": "Documentation",
-          "href": "https://mintlify.com/docs",
-          "icon": "book-open-cover"
-        },
-        {
-          "anchor": "Blog",
-          "href": "https://mintlify.com/blog",
-          "icon": "newspaper"
-        }
-      ]
-    }
-  },
-  "logo": {
-    "light": "/logo/light.svg",
-    "dark": "/logo/dark.svg"
-  },
-  "navbar": {
-    "links": [
-      {
-        "label": "Support",
-        "href": "mailto:hi@mintlify.com"
-      }
-    ],
-    "primary": {
-      "type": "button",
-      "label": "Dashboard",
-      "href": "https://dashboard.mintlify.com"
-    }
-  },
-  "contextual": {
-    "options": [
-     "copy",
-     "view",
-     "chatgpt",
-     "claude",
-     "perplexity",
-     "mcp",
-     "cursor",
-     "vscode"
-   ]
-  },
-  "footer": {
-    "socials": {
-      "x": "https://x.com/mintlify",
-      "github": "https://github.com/mintlify",
-      "linkedin": "https://linkedin.com/company/mintlify"
-    }
+    ]
   }
 }

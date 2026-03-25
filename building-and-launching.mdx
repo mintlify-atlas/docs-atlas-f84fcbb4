@@ -1,0 +1,82 @@
+---
+title: "Building and Launching"
+description: "Build your game for production and deploy it to the Stake Engine platform"
+---
+
+Once your game is working in Storybook, follow these steps to produce a production build, upload it to Stake Engine, and connect a local DEV server to the live RGS for end-to-end testing.
+
+<Steps>
+  <Step title="Build the game">
+    Run the build command from the repo root, using TurboRepo's `--filter` flag to target the `lines` game (or replace `lines` with your game's package name):
+
+    ```bash
+    pnpm run build --filter=lines
+    ```
+
+    The SvelteKit build produces two output directories inside `apps/lines/.svelte-kit/output/`:
+
+    | Path | Contents |
+    |---|---|
+    | `prerendered/pages/index.html` | The pre-rendered entry HTML file |
+    | `client/` | All client-side JavaScript, CSS, and static assets |
+  </Step>
+
+  <Step title="Assemble the build folder">
+    Create a new folder (e.g. `build/`) anywhere on your machine. Copy the `index.html` and the entire contents of the `client/` directory into it so the final structure looks like this:
+
+    ```
+    build/
+      |- index.html
+      |- _app/
+      |- assets/
+      |- favicon.svg
+      |- loader.gif
+      |- stake-engine-loader.gif
+    ```
+
+    <Note>
+      The `index.html` comes from `apps/lines/.svelte-kit/output/prerendered/pages/index.html`. Everything else comes from `apps/lines/.svelte-kit/output/client/`.
+    </Note>
+  </Step>
+
+  <Step title="Upload to Stake Engine">
+    1. Log in to [Stake Engine](https://engine.stake.com/).
+    2. Navigate to the **Files** page of your game.
+    3. Click **Import** and select your entire `build/` folder to upload the frontend assets.
+    4. Once the upload completes, click the **Publish Game** button and select **Front End**.
+  </Step>
+
+  <Step title="Start a game session and verify">
+    1. Go to the **Developer** page in Stake Engine.
+    2. Click **Start game session**.
+    3. Click **Launch in New Tab**.
+
+    The game opens in a staging environment connected to the live RGS. You can interact with all controls and verify the full round-trip from bet to result.
+  </Step>
+
+  <Step title="Connect DEV mode to the RGS">
+    The URL of the launched game contains a query string with the authentication parameters needed to connect to the RGS. Copy the full query string from the browser address bar.
+
+    Start the local dev server:
+
+    ```bash
+    pnpm run dev --filter=lines
+    ```
+
+    Paste the copied query string into the URL of your local dev server. The authentication error screen will resolve and the game will connect to the live RGS, giving you hot-reloading development against a real backend.
+
+    <Tip>
+      This workflow is useful for debugging game behaviour that can only be reproduced with real RGS data. For most day-to-day development, Storybook with local book data is faster—see the [Quickstart](/quickstart).
+    </Tip>
+  </Step>
+</Steps>
+
+## Rebuilding packages
+
+If you modify source files inside `packages/pixi-svelte`, those changes won't take effect automatically because the package is resolved from its compiled output. Rebuild it before running your game:
+
+```bash
+pnpm run build --filter=pixi-svelte
+```
+
+This applies to any package that specifies a `main` field pointing to a built artifact in its `package.json`.

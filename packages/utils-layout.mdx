@@ -1,0 +1,161 @@
+---
+title: "utils-layout"
+description: "Responsive canvas layout system with device type detection"
+---
+
+`utils-layout` solves the challenge of positioning PixiJS display objects across a wide range of screen sizes and orientations. Unlike HTML, PixiJS does not have automatic layout flow — every element must be placed with explicit coordinates. `utils-layout` provides reactive size, ratio, and device-type values derived from the browser window.
+
+## createLayout()
+
+Factory function that returns `stateLayout` and `stateLayoutDerived`. Create it once per game.
+
+```ts
+import { createLayout } from 'utils-layout';
+
+export const { stateLayout, stateLayoutDerived } = createLayout({
+  backgroundRatio: {
+    normal:   1.777, // 16:9 landscape background
+    portrait: 0.5625, // 9:16 portrait background
+  },
+  mainSizesMap: {
+    desktop:   { width: 1920, height: 1080 },
+    tablet:    { width: 1920, height: 1920 },
+    landscape: { width: 1920, height: 1080 },
+    portrait:  { width: 1080, height: 1920 },
+  },
+});
+```
+
+### Parameters
+
+| Parameter | Description |
+|---|---|
+| `backgroundRatio.normal` | Aspect ratio of the landscape background asset (width / height). |
+| `backgroundRatio.portrait` | Aspect ratio of the portrait background asset. |
+| `mainSizesMap` | Design-space dimensions for each layout type — the stage is scaled to fit within the canvas while preserving this aspect ratio. |
+
+## stateLayout
+
+Mutable reactive state. Currently contains one field:
+
+```ts
+const stateLayout = $state({
+  showLoadingScreen: true,
+});
+```
+
+Set `stateLayout.showLoadingScreen = false` once all assets have loaded to transition the game into the playable state.
+
+## stateLayoutDerived
+
+All values are **functions** (not plain values) because they are computed from `innerWidth.current` and `innerHeight.current` from Svelte's `svelte/reactivity/window` — they update automatically whenever the window is resized.
+
+```ts
+const stateLayoutDerived = {
+  canvasSizes,             // () => { width: number; height: number }
+  canvasRatio,             // () => number  (width / height)
+  canvasRatioType,         // () => 'longWidth' | 'almostSquare' | 'longHeight'
+  canvasSizeType,          // () => 'smallMobile' | 'mobile' | 'tablet' | 'largeTablet' | 'desktop'
+  layoutType,              // () => 'desktop' | 'tablet' | 'landscape' | 'portrait'
+  isStacked,               // () => boolean  (portrait or almostSquare)
+  mainLayout,              // () => { x, y, scale, width, height, anchor }
+  mainLayoutStandard,      // () => { x, y, scale, width, height, anchor }  (uses STANDARD_MAIN_SIZES_MAP)
+  normalBackgroundLayout,  // ({ scale }) => { x, y, width? } | { x, y, height? }
+  portraitBackgroundLayout,// ({ scale }) => { x, y, width? } | { x, y, height? }
+};
+```
+
+### canvasRatioType break points
+
+| Type | Condition |
+|---|---|
+| `longWidth` | ratio ≥ 1.3 |
+| `almostSquare` | 0.8 < ratio < 1.3 |
+| `longHeight` | ratio ≤ 0.8 |
+
+### canvasSizeType break points (shortest dimension)
+
+| Type | Max size |
+|---|---|
+| `smallMobile` | 375 px (e.g. iPhone SE) |
+| `mobile` | 480 px (e.g. iPhone XR) |
+| `tablet` | 820 px (e.g. iPad Air) |
+| `largeTablet` | 1024 px (e.g. iPad Pro) |
+| `desktop` | > 1024 px |
+
+### layoutType derivation
+
+```ts
+const layoutType = () => {
+  if (canvasRatioType() === 'almostSquare') return 'tablet';
+  if (canvasRatioType() === 'longHeight')  return 'portrait';
+  if (canvasSizeType() === 'mobile' || canvasSizeType() === 'smallMobile')
+    return 'landscape';
+  return 'desktop';
+};
+```
+
+## How canvasSizes is driven
+
+Because `PIXI.Application` is configured with `resizeTo: window`, the PixiJS canvas always matches the window. `createLayout` reads `innerWidth` and `innerHeight` from `svelte/reactivity/window` so all derived values stay in sync with every window resize:
+
+```ts
+import { innerWidth, innerHeight } from 'svelte/reactivity/window';
+
+const canvasSizes = () => ({
+  width:  innerWidth.current  ?? 1,
+  height: innerHeight.current ?? 1,
+});
+```
+
+## Positioning PixiJS elements
+
+For HTML, elements flow automatically. In PixiJS, coordinates must be explicit. `stateLayoutDerived.canvasSizes()` provides the canvas boundary:
+
+```svelte
+<!-- Left edge of canvas -->
+<Component x={0} />
+
+<!-- Right edge of canvas (anchor shifts the origin to the right side of the component) -->
+<Component
+  x={context.stateLayoutDerived.canvasSizes().width}
+  anchor={{ x: 1, y: 0 }}
+/>
+
+<!-- Centered component using mainLayout -->
+<Container
+  x={context.stateLayoutDerived.mainLayout().x}
+  y={context.stateLayoutDerived.mainLayout().y}
+  scale={context.stateLayoutDerived.mainLayout().scale}
+/>
+```
+
+<Tip>
+Coordinates are relative to the parent `<Container />`. When a component is a direct child of `<App />`, `canvasSizes()` gives the canvas boundary. Inside a nested `<Container />`, positions are relative to that container's origin.
+</Tip>
+
+## isStacked
+
+`isStacked()` returns `true` for `portrait` and `tablet` (almostSquare) layout types. Use it to switch between stacked (vertical) and side-by-side (horizontal) UI arrangements:
+
+```svelte
+{#if context.stateLayoutDerived.isStacked()}
+  <PortraitUI />
+{:else}
+  <LandscapeUI />
+{/if}
+```
+
+## ContextLayout
+
+```ts
+import { setContextLayout, getContextLayout } from 'utils-layout';
+
+// Entry component
+setContextLayout({ stateLayout, stateLayoutDerived });
+
+// Any descendant component
+const { stateLayout, stateLayoutDerived } = getContextLayout();
+```
+
+Context key: `'@@layout'`.

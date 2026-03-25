@@ -1,0 +1,172 @@
+---
+title: "utils-book"
+description: "Utilities for processing ordered sequences of bookEvents from the RGS"
+---
+
+`utils-book` provides the functions that drive the core game loop: receiving a `book` (JSON payload) from the RGS and processing its `events` array one-by-one in order.
+
+## createPlayBookUtils()
+
+Factory function that returns `playBookEvent` and `playBookEvents`. You pass it the `bookEventHandlerMap` for your game once at startup.
+
+```ts
+import { createPlayBookUtils } from 'utils-book';
+
+export function createPlayBookUtils<
+  TBookEventHandlerMap extends BookEventHandlerMap<any, any>
+>({
+  bookEventHandlerMap,
+  debug,
+}: {
+  bookEventHandlerMap: TBookEventHandlerMap;
+  debug?: boolean;
+})
+```
+
+### Parameters
+
+| Parameter | Type | Description |
+|---|---|---|
+| `bookEventHandlerMap` | `BookEventHandlerMap<TBookEvent, THandlerContext>` | Map from `bookEvent.type` string to an async handler function. |
+| `debug` | `boolean?` | When `true`, logs each `bookEvent` to the console before dispatching it. |
+
+### Return value
+
+```ts
+{
+  playBookEvent:  (bookEvent: TBookEvent, bookEventContext: TBookEventContext) => Promise<void>;
+  playBookEvents: (bookEvents: TBookEvent[], bookEventContext?: BookEventContextFromMapWithoutBookEvents) => Promise<void>;
+}
+```
+
+## playBookEvents()
+
+Processes an entire `book.events` array, resolving each handler **one after another** using `sequence()` from `utils-shared`. The order of events is critical — it determines the visual sequence of the game (e.g. spin before win reveal).
+
+```ts
+const playBookEvents = async (
+  bookEvents: TBookEvent[],
+  bookEventContext?: BookEventContextFromMapWithoutBookEvents,
+) => {
+  const finalBookEventContext =
+    bookEventContext || ({} as BookEventContextFromMapWithoutBookEvents);
+
+  await sequence(bookEvents, async (bookEvent) => {
+    await playBookEvent(bookEvent, { ...finalBookEventContext, bookEvents });
+  });
+};
+```
+
+`bookEvents` is automatically injected into the context of every handler call, so handlers can inspect the full event list.
+
+<Note>
+`sequence()` from `utils-shared` resolves async functions one-after-another, unlike `Promise.all()` which fires them simultaneously. This is essential for maintaining the correct animation order.
+</Note>
+
+## playBookEvent()
+
+Dispatches a single `bookEvent` to the matching handler in `bookEventHandlerMap`. If no handler is found for `bookEvent.type`, an error is logged.
+
+```ts
+const playBookEvent = async (
+  bookEvent: TBookEvent,
+  bookEventContext: TBookEventContext,
+) => {
+  const bookEventHandler = bookEventHandlerMap?.[bookEvent.type];
+  if (bookEventHandler) {
+    if (debug) console.log(bookEvent);
+    await bookEventHandler(bookEvent, bookEventContext);
+  } else {
+    console.error('Missing bookEventHandler in "bookEventHandlerMap" for: ', bookEvent);
+  }
+};
+```
+
+This is also used directly by the `MODE_<GAME_MODE>/bookEvent/<TYPE>` Storybook stories to test individual events in isolation.
+
+## Types
+
+```ts
+// A bookEvent must always have these two fields
+export type BaseBookEvent = { index: number; type: string };
+
+// A handler for a single bookEvent type
+export type BookEventHandler<
+  TBookEvent extends BaseBookEvent,
+  THandlerContext extends object,
+> = (bookEvent: TBookEvent, context: THandlerContext) => Promise<void>;
+
+// The full map: keys are bookEvent.type strings
+export type BookEventHandlerMap<
+  TBookEvent extends BaseBookEvent,
+  THandlerContext extends object,
+> = Record<string, BookEventHandler<TBookEvent, THandlerContext>>;
+
+// Helper to extract the BookEvent type from a map
+export type GetBookEventFromMap<T extends BookEventHandlerMap<any, any>> =
+  T extends BookEventHandlerMap<infer U, any> ? U : never;
+
+// Helper to extract the context type from a map
+export type GetBookEventContextFromMap<T extends BookEventHandlerMap<any, any>> =
+  T extends BookEventHandlerMap<any, infer U> ? U : never;
+```
+
+## Real-world usage
+
+```ts
+// apps/lines/src/game/bookEventHandlerMap.ts
+
+export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContext> = {
+  reveal: async (bookEvent) => {
+    await eventEmitter.broadcastAsync({ type: 'boardSpin', board: bookEvent.board });
+  },
+  setTotalWin: async (bookEvent) => {
+    eventEmitter.broadcast({ type: 'totalWinUpdate', amount: bookEvent.amount });
+  },
+  updateFreeSpin: async (bookEvent) => {
+    eventEmitter.broadcast({ type: 'freeSpinCounterShow' });
+    eventEmitter.broadcast({
+      type: 'freeSpinCounterUpdate',
+      current: bookEvent.amount,
+      total: bookEvent.total,
+    });
+  },
+};
+
+// Create utilities once at game startup
+export const { playBookEvent, playBookEvents } = createPlayBookUtils({
+  bookEventHandlerMap,
+  debug: import.meta.env.DEV,
+});
+```
+
+## createMultiBookUtils()
+
+For games that receive multiple books simultaneously (e.g. multi-way games), `createMultiBookUtils` provides helpers to split, merge, and re-assemble books into rounds.
+
+```ts
+import { createMultiBookUtils } from 'utils-book';
+
+const { booksToRounds, roundsToBooks } = createMultiBookUtils();
+```
+
+### booksToRounds()
+
+Splits multiple books into parallel rounds aligned by a `splitBy` event type.
+
+```ts
+booksToRounds<TBookEvent>({
+  books: TBookEvent[][],  // array of books (one per game mode)
+  splitBy: TBookEvent['type'][],  // event type(s) that delimit round boundaries
+}): TBookEvent[][][]
+```
+
+### roundsToBooks()
+
+Reassembles rounds back into per-book arrays:
+
+```ts
+roundsToBooks<TBookEvent>({
+  rounds: TBookEvent[][][],
+}): TBookEvent[][]
+```

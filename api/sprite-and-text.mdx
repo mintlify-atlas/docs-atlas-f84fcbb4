@@ -1,0 +1,377 @@
+---
+title: "Sprite & Text"
+description: "Image rendering, animated sprites, and text display components"
+---
+
+## Overview
+
+These components render images, sprite sheet animations, and text onto the PixiJS stage. All sprite and text components accept standard PixiJS positioning props (`x`, `y`, `scale`, `rotation`, etc.) inherited from their underlying PIXI display objects.
+
+---
+
+## \<Sprite\>
+
+Renders a single static texture loaded from the asset manifest. The texture is looked up by `key` from `stateApp.loadedAssets`.
+
+### Props
+
+<ParamField path="key" type="string" required>
+  The key used in the asset manifest (`createApp({ assets })`) to identify this texture. Must correspond to an asset with `type: 'sprite'`.
+</ParamField>
+
+<ParamField path="debug" type="boolean">
+  When `true`, logs an error to the console if the texture key is not found in `loadedAssets`. Useful during development.
+</ParamField>
+
+<ParamField path="texture" type="PIXI.Texture">
+  Not normally set directly on `<Sprite>` — the texture is resolved automatically from `key`. Use `BaseSprite` if you need to supply a texture directly.
+</ParamField>
+
+<ParamField path="x" type="number">
+  Horizontal position in pixels from the parent origin. Default `0`.
+</ParamField>
+
+<ParamField path="y" type="number">
+  Vertical position in pixels from the parent origin. Default `0`.
+</ParamField>
+
+<ParamField path="anchor" type="number | PointData">
+  Sets the sprite's origin/pivot. `0` = top-left, `0.5` = centre, `1` = bottom-right. Accepts a uniform number or `{ x, y }`. Default `0`.
+</ParamField>
+
+<ParamField path="scale" type="number | PointData">
+  Uniform or per-axis scale. Default `1`.
+</ParamField>
+
+<ParamField path="rotation" type="number">
+  Rotation in radians. Default `0`.
+</ParamField>
+
+<ParamField path="alpha" type="number">
+  Opacity from `0` to `1`. Default `1`.
+</ParamField>
+
+<ParamField path="visible" type="boolean">
+  Whether the sprite is rendered. Default `true`.
+</ParamField>
+
+<ParamField path="zIndex" type="number">
+  Sort order within the parent container. Default `0`.
+</ParamField>
+
+<ParamField path="tint" type="PIXI.ColorSource">
+  Colour tint applied to the texture. Default `0xffffff` (no tint).
+</ParamField>
+
+<ParamField path="isMask" type="boolean">
+  Apply this sprite as an alpha mask on the parent container.
+</ParamField>
+
+<ParamField path="cursor" type="Cursor">
+  CSS cursor string shown on hover.
+</ParamField>
+
+### Example
+
+```svelte
+<Sprite
+  key="logo"
+  anchor={0.5}
+  x={400}
+  y={300}
+  scale={0.8}
+  alpha={0.95}
+/>
+```
+
+---
+
+## \<AnimatedSprite\>
+
+Renders a frame-by-frame animation from an array of textures. Wraps `PIXI.AnimatedSprite`.
+
+### Props
+
+<ParamField path="textures" type="PIXI.Texture[] | PIXI.FrameObject[]" required>
+  Array of textures (or frame objects with `texture` and `time`) that form the animation frames.
+</ParamField>
+
+<ParamField path="play" type="boolean">
+  When `true`, calls `gotoAndPlay(0)`. When `false`, calls `gotoAndStop(0)`. Use this to start and stop the animation declaratively. Default `false`.
+</ParamField>
+
+<ParamField path="animationSpeed" type="number">
+  Playback speed multiplier. `1` = normal speed, `0.5` = half speed. Default `1`.
+</ParamField>
+
+<ParamField path="loop" type="boolean">
+  Whether the animation loops. Default `true`.
+</ParamField>
+
+<ParamField path="x" type="number">
+  Horizontal position. Default `0`.
+</ParamField>
+
+<ParamField path="y" type="number">
+  Vertical position. Default `0`.
+</ParamField>
+
+<ParamField path="anchor" type="number | PointData">
+  Origin/pivot point. Default `0` (top-left).
+</ParamField>
+
+<ParamField path="scale" type="number | PointData">
+  Uniform or per-axis scale. Default `1`.
+</ParamField>
+
+<ParamField path="alpha" type="number">
+  Opacity from `0` to `1`. Default `1`.
+</ParamField>
+
+<ParamField path="visible" type="boolean">
+  Whether the sprite is rendered. Default `true`.
+</ParamField>
+
+<ParamField path="zIndex" type="number">
+  Sort order within the parent. Default `0`.
+</ParamField>
+
+<ParamField path="tint" type="PIXI.ColorSource">
+  Colour tint applied to all frames. Default `0xffffff`.
+</ParamField>
+
+<ParamField path="cursor" type="Cursor">
+  CSS cursor string.
+</ParamField>
+
+### Example
+
+```svelte
+<script lang="ts">
+  import { getContextApp } from 'pixi-svelte';
+
+  const { stateApp } = getContextApp();
+
+  // Textures resolved from loadedAssets after createApp
+  const frames = $derived(stateApp.loadedAssets?.['coinAnim'] as PIXI.Texture[]);
+  let playing = $state(true);
+</script>
+
+<AnimatedSprite
+  textures={frames ?? []}
+  play={playing}
+  animationSpeed={0.4}
+  loop={true}
+  anchor={0.5}
+  x={200}
+  y={300}
+/>
+```
+
+---
+
+## \<SpriteSheet\>
+
+A specialised `<AnimatedSprite>` that resolves its textures automatically from the asset manifest. Use with assets declared as `type: 'spriteSheet'`.
+
+### Props
+
+<ParamField path="key" type="string" required>
+  Asset manifest key for a `spriteSheet` asset. The loaded texture array is passed automatically to the underlying `<AnimatedSprite>`.
+</ParamField>
+
+<ParamField path="play" type="boolean">
+  Whether to play the animation. Default `false`.
+</ParamField>
+
+<ParamField path="animationSpeed" type="number">
+  Playback speed multiplier. Default `1`.
+</ParamField>
+
+<ParamField path="loop" type="boolean">
+  Whether the animation loops. Default `true`.
+</ParamField>
+
+<ParamField path="x" type="number">
+  Horizontal position. Default `0`.
+</ParamField>
+
+<ParamField path="y" type="number">
+  Vertical position. Default `0`.
+</ParamField>
+
+<ParamField path="anchor" type="number | PointData">
+  Origin/pivot point. Default `0`.
+</ParamField>
+
+<ParamField path="alpha" type="number">
+  Opacity from `0` to `1`. Default `1`.
+</ParamField>
+
+<ParamField path="visible" type="boolean">
+  Whether the sprite is rendered. Default `true`.
+</ParamField>
+
+<ParamField path="zIndex" type="number">
+  Sort order within the parent. Default `0`.
+</ParamField>
+
+<ParamField path="cursor" type="Cursor">
+  CSS cursor string.
+</ParamField>
+
+### Example
+
+```svelte
+<!-- Asset manifest: coins: { type: 'spriteSheet', src: '/spritesheets/coins.json' } -->
+<SpriteSheet
+  key="coins"
+  play={true}
+  animationSpeed={0.3}
+  loop={true}
+  anchor={0.5}
+  x={300}
+  y={400}
+/>
+```
+
+---
+
+## \<Text\>
+
+Renders a text string using a PixiJS canvas-rendered font. Wraps `PIXI.Text`.
+
+### Props
+
+<ParamField path="text" type="string">
+  The string to display.
+</ParamField>
+
+<ParamField path="style" type="PIXI.TextStyle | Partial<PIXI.TextStyleOptions>">
+  Text styling options: font family, size, weight, colour, stroke, word wrap, alignment, etc. See the [PixiJS TextStyle docs](https://pixijs.com/8.x/guides/components/text) for all options.
+</ParamField>
+
+<ParamField path="onresize" type="(size: { width: number; height: number }) => void">
+  Callback fired whenever the rendered size of the text changes — on mount and whenever `text` or `style` changes. Useful for dynamically repositioning elements relative to text bounds.
+</ParamField>
+
+<ParamField path="x" type="number">
+  Horizontal position. Default `0`.
+</ParamField>
+
+<ParamField path="y" type="number">
+  Vertical position. Default `0`.
+</ParamField>
+
+<ParamField path="anchor" type="number | PointData">
+  Origin/pivot point. `0.5` centres the text on `x`/`y`. Default `0`.
+</ParamField>
+
+<ParamField path="scale" type="number | PointData">
+  Uniform or per-axis scale. Default `1`.
+</ParamField>
+
+<ParamField path="alpha" type="number">
+  Opacity from `0` to `1`. Default `1`.
+</ParamField>
+
+<ParamField path="visible" type="boolean">
+  Whether the text is rendered. Default `true`.
+</ParamField>
+
+<ParamField path="zIndex" type="number">
+  Sort order within the parent. Default `0`.
+</ParamField>
+
+<ParamField path="cursor" type="Cursor">
+  CSS cursor string.
+</ParamField>
+
+### Example
+
+```svelte
+<script lang="ts">
+  let balance = $state(1250.50);
+</script>
+
+<Text
+  text={`Balance: $${balance.toFixed(2)}`}
+  style={{
+    fontFamily: 'Arial',
+    fontSize: 28,
+    fontWeight: 'bold',
+    fill: 0xffd700,
+    stroke: { color: 0x000000, width: 3 },
+  }}
+  anchor={0.5}
+  x={400}
+  y={50}
+/>
+```
+
+---
+
+## \<BitmapText\>
+
+Renders text using a pre-rasterised bitmap font. Faster than `<Text>` for frequently updated strings (scores, counters) because it does not re-rasterise on every change. Requires a `font` asset loaded via the manifest.
+
+`<BitmapText>` has the same props as `<Text>`. The `style.fontFamily` must match the name of a loaded bitmap font.
+
+### Props
+
+<ParamField path="text" type="string">
+  The string to display.
+</ParamField>
+
+<ParamField path="style" type="PIXI.TextStyle | Partial<PIXI.TextStyleOptions>">
+  Text style. `fontFamily` must match the loaded bitmap font name.
+</ParamField>
+
+<ParamField path="onresize" type="(size: { width: number; height: number }) => void">
+  Callback fired on mount and whenever `text` or `style` changes with the current rendered dimensions.
+</ParamField>
+
+<ParamField path="x" type="number">
+  Horizontal position. Default `0`.
+</ParamField>
+
+<ParamField path="y" type="number">
+  Vertical position. Default `0`.
+</ParamField>
+
+<ParamField path="anchor" type="number | PointData">
+  Origin/pivot point. Default `0`.
+</ParamField>
+
+<ParamField path="alpha" type="number">
+  Opacity. Default `1`.
+</ParamField>
+
+<ParamField path="visible" type="boolean">
+  Whether the text is rendered. Default `true`.
+</ParamField>
+
+<ParamField path="zIndex" type="number">
+  Sort order within the parent. Default `0`.
+</ParamField>
+
+<ParamField path="cursor" type="Cursor">
+  CSS cursor string.
+</ParamField>
+
+### Example
+
+```svelte
+<!-- Asset manifest: scoreFont: { type: 'font', src: '/fonts/score.fnt' } -->
+<BitmapText
+  text="9,999"
+  style={{ fontFamily: 'ScoreFont', fontSize: 48 }}
+  anchor={0.5}
+  x={400}
+  y={100}
+/>
+```
+
+<Note>
+  Use `<BitmapText>` over `<Text>` for values that update every frame (live counters, timers). Bitmap fonts are rendered once and reused, so repeated text updates are cheaper.
+</Note>

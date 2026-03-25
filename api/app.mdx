@@ -1,0 +1,202 @@
+---
+title: "App & Asset Loading"
+description: "The App component and asset loading system for PixiJS applications"
+---
+
+## Overview
+
+The `<App>` component is the root of every Stake Engine game. It initialises a `PIXI.Application`, mounts the canvas, loads all declared assets, and exposes reactive state through the `stateApp` object created by `createApp`.
+
+The component tree assembled by `<App>` is:
+
+```
+<App>
+  └─ <InitialiseApplication>   — creates PIXI.Application, appends canvas
+       └─ <InitialiseParent>   — sets up the PixiJS display-object parent context
+            └─ <AssetsLoader>  — loads all assets declared in stateApp.assets
+                 └─ {children}
+```
+
+---
+
+## createApp
+
+Create an application state object and pass it to your Svelte context before mounting `<App>`.
+
+```typescript
+import { createApp } from 'pixi-svelte';
+import type { Assets } from 'pixi-svelte';
+
+const assets: Assets = {
+  logo: { type: 'sprite', src: '/images/logo.png' },
+  character: {
+    type: 'spine',
+    src: { skeleton: '/spine/char.skel', atlas: '/spine/char.atlas' },
+  },
+  coins: { type: 'spriteSheet', src: '/spritesheets/coins.json' },
+  ui: { type: 'sprite', src: '/images/ui.png', preload: true },
+};
+
+const { stateApp } = createApp({ assets });
+```
+
+### stateApp fields
+
+<ParamField path="stateApp.assets" type="Assets" required>
+  The asset manifest passed to `createApp`. A dictionary mapping string keys to `Asset` descriptors. Each descriptor has a `type` (`'sprite' | 'sprites' | 'spriteSheet' | 'spine' | 'font' | 'audio'`), a `src`, and an optional `preload` flag.
+</ParamField>
+
+<ParamField path="stateApp.loaded" type="boolean">
+  Becomes `true` once all non-preload assets have finished loading. Reactive — read it inside a `$derived` or `$effect` to react to load completion.
+</ParamField>
+
+<ParamField path="stateApp.loadingProgress" type="number">
+  A number from `0` to `100` representing the percentage of non-preload assets loaded. Useful for rendering a progress bar.
+</ParamField>
+
+<ParamField path="stateApp.loadedAssets" type="LoadedAssets">
+  A dictionary of fully processed assets keyed by the same names used in the manifest. Components such as `<Sprite>`, `<SpriteSheet>`, and `<SpineProvider>` look up assets from this object using their `key` prop.
+</ParamField>
+
+<ParamField path="stateApp.pixiApplication" type="PIXI.Application | undefined">
+  The underlying `PIXI.Application` instance. Available after `<InitialiseApplication>` has mounted. `undefined` before initialisation and after destroy.
+</ParamField>
+
+<ParamField path="stateApp.reset" type="() => void">
+  Resets `loaded`, `loadingProgress`, `loadedAssets`, and `pixiApplication` to their initial values. Called automatically by `<App>` on mount and destroy.
+</ParamField>
+
+---
+
+## \<App\>
+
+The top-level wrapper for a Stake Engine game. Place it inside a Svelte component that has called `setContext` with the result of `createApp`.
+
+```svelte
+<script lang="ts">
+  import { App, createApp, setContextApp } from 'pixi-svelte';
+  import type { Assets } from 'pixi-svelte';
+  import Game from './Game.svelte';
+
+  const assets: Assets = {
+    background: { type: 'sprite', src: '/images/background.png', preload: true },
+    reels: { type: 'spriteSheet', src: '/spritesheets/reels.json' },
+  };
+
+  const { stateApp } = createApp({ assets });
+  setContextApp({ stateApp });
+</script>
+
+<App>
+  <Game />
+</App>
+```
+
+### Props
+
+<ParamField path="children" type="Snippet" required>
+  The Svelte snippet rendered inside the fully-initialised application. Children are only rendered after `<InitialiseApplication>` has created the canvas **and** all preload assets are available.
+</ParamField>
+
+<Note>
+  `<App>` calls `stateApp.reset()` on both mount and destroy. This ensures the application starts from a clean state and tears down cleanly when the component is removed.
+</Note>
+
+---
+
+## \<AssetsLoader\>
+
+Internal component used by `<App>`. Reads the asset manifest from `stateApp.assets`, loads any `preload: true` assets first (blocking render), then loads the remaining assets in the background while updating `stateApp.loadingProgress`.
+
+You do not need to use `<AssetsLoader>` directly — `<App>` includes it automatically.
+
+### How asset loading works
+
+**Preload assets** (`preload: true`) are loaded before children are rendered. Use this for assets required to display the initial frame — for example, a loading screen background.
+
+**Deferred assets** (default, `preload: false`) are loaded after children are rendered. `stateApp.loadingProgress` increments as each one finishes. `stateApp.loaded` becomes `true` when all deferred assets are done.
+
+---
+
+## \<InitialiseApplication\>
+
+Internal component used by `<App>`. Creates the `PIXI.Application` and appends its canvas to the DOM.
+
+The application is configured with:
+
+| Option | Value |
+|---|---|
+| `autoDensity` | `true` |
+| `backgroundAlpha` | `0` (transparent) |
+| `antialias` | `true` |
+| `preference` | `'webgpu'` (falls back to WebGL) |
+| `powerPreference` | `'high-performance'` |
+| `resolution` | `devicePixelRatio` (reactive) |
+| `resizeTo` | `window` |
+
+Touch-action is set to `'auto'` on the canvas to prevent blocking page scroll on touch devices.
+
+Children are rendered only after the application has finished initialising.
+
+---
+
+## Asset manifest types
+
+```typescript
+import type { Assets, Asset, SpineSrc } from 'pixi-svelte';
+
+// A single asset entry
+type Asset = {
+  type: 'sprite' | 'sprites' | 'spriteSheet' | 'spine' | 'font' | 'audio';
+  src: string | SpineSrc;
+  preload?: boolean; // defaults to false
+};
+
+// Spine assets require skeleton + atlas paths
+type SpineSrc = {
+  skeleton: string;
+  atlas: string;
+  scale?: number;
+};
+
+// Full manifest
+type Assets = Record<string, Asset>;
+```
+
+---
+
+## Usage example
+
+```svelte
+<!-- GameRoot.svelte -->
+<script lang="ts">
+  import { App, Container, createApp, setContextApp } from 'pixi-svelte';
+
+  const { stateApp } = createApp({
+    assets: {
+      background: { type: 'sprite', src: '/images/bg.png', preload: true },
+      symbols: { type: 'spriteSheet', src: '/spritesheets/symbols.json' },
+      idle: {
+        type: 'spine',
+        src: { skeleton: '/spine/character.skel', atlas: '/spine/character.atlas' },
+      },
+    },
+  });
+
+  setContextApp({ stateApp });
+</script>
+
+<App>
+  {#if !stateApp.loaded}
+    <!-- Loading screen — preload assets are already available here -->
+    <Container x={0} y={0}>
+      <!-- progress bar, logo, etc. -->
+    </Container>
+  {:else}
+    <!-- Main game content -->
+    <Container x={0} y={0}>
+      <!-- game components -->
+    </Container>
+  {/if}
+</App>
+```

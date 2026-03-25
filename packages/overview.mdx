@@ -1,0 +1,139 @@
+---
+title: "Packages Overview"
+description: "All local packages in the Stake Engine Web SDK monorepo"
+---
+
+The Stake Engine Web SDK is organized as a [TurboRepo](https://turbo.build/repo/docs) monorepo. All game apps live in `/apps`, and all reusable code lives in `/packages`. Apps and packages can consume any sibling package directly without publishing to npm — the dependency is declared with `workspace:*` in `package.json`.
+
+```json
+// apps/lines/package.json
+{
+  "name": "lines",
+  "dependencies": {
+    "pixi-svelte": "workspace:*",
+    "constants-shared": "workspace:*",
+    "state-shared": "workspace:*",
+    "utils-shared": "workspace:*",
+    "components-shared": "workspace:*"
+  },
+  "devDependencies": {
+    "config-ts": "workspace:*"
+  }
+}
+```
+
+## Naming convention
+
+Every package name follows the pattern `<PACKAGE_TYPE>-<SPECIAL_DEPENDENCY or USAGE>`.
+
+For example, `components-pixi` is a components package whose special dependency is `pixi-svelte`, and `utils-sound` is a utils package whose special dependency is [howler](https://www.npmjs.com/package/howler).
+
+`*-shared` packages are an exception: instead of a special dependency they are designed to have a **minimum set of dependencies** and a **broad set of use cases** so they can be imported almost everywhere.
+
+## Monorepo structure
+
+```
+root
+├── apps/
+│   ├── cluster/
+│   ├── lines/
+│   ├── price/
+│   ├── scatter/
+│   └── ways/
+└── packages/
+    ├── config-*
+    ├── constants-*
+    ├── state-*
+    ├── utils-*
+    ├── components-*
+    ├── pixi-*
+    ├── rgs-fetcher/
+    └── rgs-requests/
+```
+
+## Package groups
+
+<CardGroup cols={2}>
+  <Card title="config-*" icon="gear">
+    Reusable toolchain configurations shared across apps and packages.
+
+    - `config-lingui` — [lingui](https://www.npmjs.com/package/@lingui/core) i18n config
+    - `config-storybook` — [Storybook](https://www.npmjs.com/package/storybook) config
+    - `config-svelte` — [Svelte](https://www.npmjs.com/package/svelte) compiler config
+    - `config-ts` — [TypeScript](https://www.npmjs.com/package/typescript) `tsconfig` base
+    - `config-vite` — [Vite](https://www.npmjs.com/package/vite) config
+  </Card>
+
+  <Card title="pixi-*" icon="paintbrush">
+    Svelte 5 + PixiJS 8 integration layer.
+
+    - `pixi-svelte` — declarative Svelte components wrapping PixiJS primitives; also published to [npm](https://www.npmjs.com/package/pixi-svelte)
+    - `pixi-svelte-storybook` — Storybook for `pixi-svelte` components
+  </Card>
+
+  <Card title="constants-*" icon="hashtag">
+    Global compile-time constants with no runtime dependencies.
+
+    - `constants-shared` — bet multipliers, z-index values, time helpers, color constants, particle configs
+  </Card>
+
+  <Card title="state-*" icon="database">
+    Global reactive Svelte `$state` objects shared across packages.
+
+    - `state-shared` — `stateBet`, `stateSound`, `stateUrl`, `stateModal`, `stateMeta`, `stateConfig`, `stateUi`, `stateI18n`
+  </Card>
+
+  <Card title="utils-*" icon="wrench">
+    Utility functions and types organized by dependency or use case.
+
+    - `utils-book` — book event processing (`playBookEvents`, `playBookEvent`)
+    - `utils-event-emitter` — type-safe event bus (`createEventEmitter`)
+    - `utils-xstate` — XState finite state machine for bet flows
+    - `utils-layout` — responsive canvas layout system
+    - `utils-slots` — reel and board spin mechanics
+    - `utils-sound` — audio management via Howler.js
+    - `utils-fetcher` — wrapper around the Fetch API
+    - `utils-shared` — miscellaneous helpers (no lodash/lingui dependency)
+    - `utils-resize-observer` — ResizeObserver utilities
+    - `utils-bet` — bet-related types and helpers
+  </Card>
+
+  <Card title="components-*" icon="cube">
+    Reusable Svelte components organized by rendering layer.
+
+    - `components-layout` — layout components (depend on `utils-layout`)
+    - `components-pixi` — PixiJS game components (depend on `pixi-svelte`)
+    - `components-shared` — HTML-based shared components
+    - `components-storybook` — Storybook helper components
+    - `components-ui-pixi` — PixiJS UI components (bet button, balance, etc.)
+    - `components-ui-html` — HTML UI components (modals, version overlay, etc.)
+  </Card>
+
+  <Card title="rgs-*" icon="server">
+    Remote Game Server (RGS) communication layer.
+
+    - `rgs-fetcher` — low-level HTTP fetch utilities for RGS endpoints
+    - `rgs-requests` — typed request functions (`requestBet`, `requestEndRound`, etc.)
+  </Card>
+</CardGroup>
+
+## Context-providing packages
+
+Four packages create [Svelte context](https://svelte.dev/docs/svelte/context) that child components can read with a `getContext*()` call. `setContext*()` must be called at the app entry level (e.g. `+page.svelte`) before any child tries to consume it.
+
+| Package | Creates | Context helpers |
+|---|---|---|
+| `pixi-svelte` | `stateApp` | `setContextApp` / `getContextApp` |
+| `utils-event-emitter` | `eventEmitter` | `setContextEventEmitter` / `getContextEventEmitter` |
+| `utils-layout` | `stateLayout`, `stateLayoutDerived` | `setContextLayout` / `getContextLayout` |
+| `utils-xstate` | `stateXstate`, `stateXstateDerived` | `setContextXstate` / `getContextXstate` |
+
+```ts
+// apps/lines/src/game/context.ts
+export const setContext = () => {
+  setContextEventEmitter<EmitterEvent>({ eventEmitter });
+  setContextXstate({ stateXstate, stateXstateDerived });
+  setContextLayout({ stateLayout, stateLayoutDerived });
+  setContextApp({ stateApp });
+};
+```

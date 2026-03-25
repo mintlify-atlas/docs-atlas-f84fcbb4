@@ -1,0 +1,124 @@
+{
+  "projectType": "framework",
+  "projectName": "Stake Engine Web SDK",
+  "projectDescription": "A declarative web game development framework powered by Svelte 5, PixiJS 8, and XState for building and deploying casino games on the Stake Engine platform.",
+  "theme": "aspen",
+  "primaryColor": "#061625",
+  "lightColor": "#7c8c8e",
+  "darkColor": "#d2d7d9",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "building-and-launching"
+            ]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "concepts/book-and-events",
+              "concepts/event-emitter",
+              "concepts/state-machine",
+              "concepts/context-system"
+            ]
+          },
+          {
+            "group": "Guides",
+            "pages": [
+              "guides/adding-a-book-event",
+              "guides/task-breakdown",
+              "guides/storybook-testing",
+              "guides/ui-and-i18n"
+            ]
+          },
+          {
+            "group": "Packages",
+            "pages": [
+              "packages/overview",
+              "packages/pixi-svelte",
+              "packages/utils-book",
+              "packages/utils-event-emitter",
+              "packages/utils-xstate",
+              "packages/utils-layout",
+              "packages/utils-slots",
+              "packages/utils-sound"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "pixi-svelte Components",
+            "pages": [
+              "api/app",
+              "api/container-and-graphics",
+              "api/sprite-and-text",
+              "api/spine",
+              "api/particles"
+            ]
+          },
+          {
+            "group": "Game Utilities",
+            "pages": [
+              "api/create-play-book-utils",
+              "api/create-event-emitter",
+              "api/rgs-fetcher"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Declarative game development using Svelte 5 components with PixiJS 8 rendering",
+    "Event-driven architecture via bookEvents and emitterEvents for game state management",
+    "Finite state machine (XState) for betting and game flow control",
+    "Monorepo structure with TurboRepo for modular, reusable packages",
+    "Storybook integration for isolated component and game-mode testing",
+    "Built-in Spine animation, SpriteSheet, and particle support via pixi-svelte",
+    "Responsive layout system with canvas size and device type awareness",
+    "Internationalization (i18n) support with Lingui",
+    "Sample games: lines, cluster, scatter, ways, price, number-picker"
+  ],
+  "publicApiSurface": [
+    "createEventEmitter<TEmitterEvent>()",
+    "eventEmitter.broadcast(emitterEvent)",
+    "eventEmitter.broadcastAsync(emitterEvent)",
+    "eventEmitter.subscribeOnMount(emitterEventHandlerMap)",
+    "createPlayBookUtils({ bookEventHandlerMap })",
+    "playBookEvents(bookEvents, bookEventContext)",
+    "playBookEvent(bookEvent, bookEventContext)",
+    "createLayout()",
+    "setContextEventEmitter()",
+    "setContextXstate()",
+    "setContextLayout()",
+    "setContextApp()",
+    "<App />",
+    "<Container />",
+    "<Sprite />",
+    "<Text />",
+    "<BitmapText />",
+    "<AnimatedSprite />",
+    "<SpriteSheet />",
+    "<SpineProvider />",
+    "<SpineTrack />",
+    "<SpineBone />",
+    "<SpineSlot />",
+    "<Graphics />",
+    "<Circle />",
+    "<Rectangle />",
+    "<ParticleEmitter />",
+    "<UI />",
+    "<UiGameName />",
+    "rgsFetcher.post()",
+    "rgsFetcher.get()"
+  ]
+}

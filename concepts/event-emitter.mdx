@@ -1,0 +1,215 @@
+---
+title: "Event Emitter"
+description: "How the typed event bus connects game logic to Svelte components"
+---
+
+The `eventEmitter` is a typed event bus that bridges **JavaScript scope** (game logic, bookEvent handlers) and **Svelte component scope** (rendering, animation). Instead of threading reactive state through component props, handlers in `bookEventHandlerMap` broadcast events that any mounted Svelte component can subscribe to.
+
+## Why an Event Emitter?
+
+In the Web SDK, game logic lives outside the Svelte component tree — in `bookEventHandlerMap`, `stateGame`, and similar plain TypeScript files. Svelte components handle display and animation. The eventEmitter is the channel between them.
+
+This separation means:
+- Multiple components can react to the same bookEvent independently
+- Components do not need to know about game logic; they only handle their own emitterEvents
+- Each emitterEventHandler can be kept small and testable (Single Responsibility Principle)
+
+## The Three Core Methods
+
+All three methods are defined in `packages/utils-event-emitter/src/createEventEmitter.ts`:
+
+```typescript
+// packages/utils-event-emitter/src/createEventEmitter.ts
+
+export function createEventEmitter<TEmitterEvent extends EmitterEventBase>() {
+  const subscriptions = new Set<EmitterEventHandler>();
+
+  // Synchronous fire-and-forget. Calls all subscribed handlers immediately.
+  const broadcast = (emitterEvent: TEmitterEvent) => {
+    subscriptions.forEach((emitterEventHandler) => {
+      emitterEventHandler(emitterEvent);
+    });
+  };
+
+  // Async — calls all handlers and returns Promise.all([...]).
+  // Awaiting this pauses the bookEvent handler until every subscriber resolves.
+  const broadcastAsync = (emitterEvent: TEmitterEvent) => {
+    const getPromises = () =>
+      Array.from(subscriptions).map((emitterEventHandler) => emitterEventHandler(emitterEvent));
+    return Promise.all(getPromises());
+  };
+
+  // Registers an emitterEventHandlerMap on component mount.
+  // Automatically unsubscribes when the component is destroyed.
+  const subscribeOnMount = (emitterEventHandlerMap: Partial<EmitterEventHandlerMap>) => {
+    onMount(() => subscribeHandlerMap(emitterEventHandlerMap));
+  };
+
+  const eventEmitter = { subscribeOnMount, broadcast, broadcastAsync };
+  return { eventEmitter };
+}
+```
+
+<Note>
+`broadcastAsync` uses `Promise.all`, meaning all subscribers are started concurrently but the caller waits for **all** of them to resolve before continuing. This is intentional — multiple components may need to finish their animations before the next bookEvent begins.
+</Note>
+
+### When to use `broadcast` vs `broadcastAsync`
+
+| Method | Use when |
+|--------|----------|
+| `broadcast` | The handler is synchronous or the caller doesn't need to wait (show/hide, update counters, play a sound) |
+| `broadcastAsync` | The caller must wait for the animation or transition to finish before proceeding |
+
+## Defining EmitterEvent Types
+
+EmitterEvents are plain discriminated union types. Each variant has a `type` string and any additional data it needs. Define them in the `<script lang="ts" module>` block of the component that owns them:
+
+```svelte
+<!-- FreeSpinCounter.svelte -->
+
+<script lang="ts" module>
+  export type EmitterEventFreeSpinCounter =
+    | { type: 'freeSpinCounterShow' }
+    | { type: 'freeSpinCounterHide' }
+    | { type: 'freeSpinCounterUpdate'; current?: number; total?: number };
+</script>
+```
+
+Then collect all per-component types into the game-level union in `typesEmitterEvent.ts`:
+
+```typescript
+// apps/lines/src/game/typesEmitterEvent.ts
+
+import type { EmitterEventBoard } from '../components/Board.svelte';
+import type { EmitterEventFreeSpinCounter } from '../components/FreeSpinCounter.svelte';
+import type { EmitterEventFreeSpinIntro } from '../components/FreeSpinIntro.svelte';
+import type { EmitterEventWin } from '../components/Win.svelte';
+import type { EmitterEventSound } from '../components/Sound.svelte';
+// ... etc.
+
+export type EmitterEventGame =
+  | EmitterEventBoard
+  | EmitterEventFreeSpinCounter
+  | EmitterEventFreeSpinIntro
+  | EmitterEventWin
+  | EmitterEventSound;
+```
+
+Finally, `eventEmitter.ts` composes the game-level type with shared UI types and creates the singleton:
+
+```typescript
+// apps/lines/src/game/eventEmitter.ts
+
+import { createEventEmitter } from 'utils-event-emitter';
+import type { EmitterEventHotKey } from 'components-shared';
+import type { EmitterEventUi } from 'components-ui-pixi';
+import type { EmitterEventModal } from 'components-ui-html';
+import type { EmitterEventGame } from './typesEmitterEvent';
+
+export type EmitterEvent =
+  | EmitterEventHotKey
+  | EmitterEventUi
+  | EmitterEventModal
+  | EmitterEventGame;
+
+export const { eventEmitter } = createEventEmitter<EmitterEvent>();
+```
+
+## Subscribing in a Component
+
+Call `subscribeOnMount` inside the component's `<script>` block. It registers the handler map when the component mounts and automatically removes subscriptions when the component is destroyed:
+
+```svelte
+<!-- FreeSpinCounter.svelte -->
+
+<script lang="ts">
+  import { getContext } from '../game/context';
+
+  const context = getContext();
+
+  let show = $state(false);
+  let current = $state(0);
+  let total = $state(0);
+
+  context.eventEmitter.subscribeOnMount({
+    freeSpinCounterShow: () => (show = true),
+    freeSpinCounterHide: () => (show = false),
+    freeSpinCounterUpdate: (emitterEvent) => {
+      if (emitterEvent.current !== undefined) current = emitterEvent.current;
+      if (emitterEvent.total !== undefined) total = emitterEvent.total;
+    },
+  });
+</script>
+```
+
+<Tip>
+You only need to provide handlers for the events your component cares about. The `Partial<EmitterEventHandlerMap>` type means unhandled event types are silently ignored.
+</Tip>
+
+## Broadcasting from a BookEvent Handler
+
+```typescript
+// apps/lines/src/game/bookEventHandlerMap.ts
+
+updateFreeSpin: async (bookEvent: BookEventOfType<'updateFreeSpin'>) => {
+  // sync — no need to wait for the counter to show
+  eventEmitter.broadcast({ type: 'freeSpinCounterShow' });
+  eventEmitter.broadcast({
+    type: 'freeSpinCounterUpdate',
+    current: bookEvent.amount + 1,
+    total: bookEvent.total,
+  });
+},
+
+freeSpinTrigger: async (bookEvent: BookEventOfType<'freeSpinTrigger'>) => {
+  // async — wait for the intro animation to fully complete
+  await eventEmitter.broadcastAsync({
+    type: 'freeSpinIntroUpdate',
+    totalFreeSpins: bookEvent.totalFs,
+  });
+},
+```
+
+And the async subscriber in `FreeSpinIntro.svelte`:
+
+```svelte
+context.eventEmitter.subscribeOnMount({
+  freeSpinIntroUpdate: async (emitterEvent) => {
+    freeSpinsFromEvent = emitterEvent.totalFreeSpins;
+    // pause here until the animation fires its oncomplete callback
+    await waitForResolve((resolve) => (oncomplete = resolve));
+  },
+});
+```
+
+## Task Breakdown Pattern
+
+For complex bookEvents, split the work into multiple fine-grained emitterEvents rather than one large handler. This keeps each handler small, and makes individual steps independently testable in Storybook (`COMPONENTS/<Component>/emitterEvent`).
+
+```typescript
+// bookEventHandlerMap.ts — tumbleBoard broken into atomic steps
+
+tumbleBoard: async (bookEvent: BookEventOfType<'tumbleBoard'>) => {
+  eventEmitter.broadcast({ type: 'tumbleBoardShow' });
+  eventEmitter.broadcast({ type: 'tumbleBoardInit', addingBoard: bookEvent.newSymbols });
+  await eventEmitter.broadcastAsync({
+    type: 'tumbleBoardExplode',
+    explodingPositions: bookEvent.explodingSymbols,
+  });
+  eventEmitter.broadcast({ type: 'tumbleBoardRemoveExploded' });
+  await eventEmitter.broadcastAsync({ type: 'tumbleBoardSlideDown' });
+  eventEmitter.broadcast({
+    type: 'boardSettle',
+    board: stateGameDerived
+      .tumbleBoardCombined()
+      .map((tumbleReel) => tumbleReel.map((tumbleSymbol) => tumbleSymbol.rawSymbol)),
+  });
+  eventEmitter.broadcast({ type: 'tumbleBoardReset' });
+  eventEmitter.broadcast({ type: 'tumbleBoardHide' });
+},
+```
+
+<Note>
+EmitterEvents from a single bookEvent can be handled by **different Svelte components**. For example, `tumbleBoardExplode` might be handled by `TumbleBoard.svelte` while `boardSettle` is handled by `Board.svelte`. This is the primary way the SDK achieves decoupled, composable game logic.
+</Note>

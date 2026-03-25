@@ -1,0 +1,311 @@
+---
+title: "Spine Animations"
+description: "Spine skeleton animation components for character and effect animations"
+---
+
+## Overview
+
+Spine integration is built on [`@esotericsoftware/spine-pixi-v8`](https://en.esotericsoftware.com/spine-pixi). Load skeleton data via the asset manifest with `type: 'spine'`, then compose the animation with the components below.
+
+A typical hierarchy:
+
+```
+<SpineProvider key="character">
+  <SpineEventEmitterProvider>      <!-- optional: enables beforeUpdateWorldTransforms events -->
+    <SpineTrack trackIndex={0} animationName="idle" loop={true} />
+    <SpineTrack trackIndex={1} animationName="blink" loop={false} />
+    <SpineSlot slotName="weapon">
+      <Sprite key="sword" />
+    </SpineSlot>
+  </SpineEventEmitterProvider>
+</SpineProvider>
+```
+
+---
+
+## \<SpineProvider\>
+
+The root component for a Spine skeleton. Looks up the `SkeletonData` from `stateApp.loadedAssets` by `key`, calculates scale from the declared `width`/`height`, and provides the `Spine` instance to all child components via context.
+
+### Props
+
+<ParamField path="key" type="string" required>
+  Asset manifest key for a `spine` asset. The loaded `SkeletonData` is resolved automatically.
+</ParamField>
+
+<ParamField path="width" type="number">
+  Desired display width in pixels. When provided, the skeleton is scaled to fit. If only `width` is given, the skeleton is scaled proportionally.
+</ParamField>
+
+<ParamField path="height" type="number">
+  Desired display height in pixels. When provided, the skeleton is scaled to fit. If only `height` is given, the skeleton is scaled proportionally.
+</ParamField>
+
+<ParamField path="anchor" type="PixiPoint">
+  Controls the pivot point of the skeleton. `0` = top-left, `0.5` = centre. Accepts a number or `{ x, y }`. Default `undefined`.
+</ParamField>
+
+<ParamField path="scale" type="PixiPoint">
+  Additional scale multiplier applied on top of the width/height-derived scale. Accepts a number or `{ x, y }`. Default `{ x: 1, y: 1 }`.
+</ParamField>
+
+<ParamField path="x" type="number">
+  Horizontal position. Default `0`.
+</ParamField>
+
+<ParamField path="y" type="number">
+  Vertical position. Default `0`.
+</ParamField>
+
+<ParamField path="alpha" type="number">
+  Opacity from `0` to `1`. Default `1`.
+</ParamField>
+
+<ParamField path="visible" type="boolean">
+  Whether the skeleton is rendered. Default `true`.
+</ParamField>
+
+<ParamField path="zIndex" type="number">
+  Sort order within the parent. Default `0`.
+</ParamField>
+
+<ParamField path="debug" type="boolean">
+  When `true`, logs an error and dumps `loadedAssets` to the console if the key is not found. Useful during development.
+</ParamField>
+
+<ParamField path="cursor" type="Cursor">
+  CSS cursor string.
+</ParamField>
+
+<ParamField path="children" type="Snippet" required>
+  `<SpineTrack>`, `<SpineSlot>`, `<SpineBone>`, and `<SpineEventEmitterProvider>` components.
+</ParamField>
+
+<Note>
+  `<SpineProvider>` uses `{#key spineData}` internally — the entire subtree is remounted whenever the resolved skeleton data changes.
+</Note>
+
+---
+
+## \<BaseSpineProvider\>
+
+The lower-level Spine component used internally by `<SpineProvider>`. Use it directly when you already have a `SPINE_PIXI.SkeletonData` object and do not need the key-lookup and auto-scaling behaviour.
+
+### Props
+
+<ParamField path="spineData" type="SPINE_PIXI.SkeletonData" required>
+  A fully loaded Spine skeleton data object. Passed directly to `new SPINE_PIXI.Spine(spineData)`.
+</ParamField>
+
+<ParamField path="x" type="number">
+  Horizontal position. Default `0`.
+</ParamField>
+
+<ParamField path="y" type="number">
+  Vertical position. Default `0`.
+</ParamField>
+
+<ParamField path="scale" type="number | PointData">
+  Scale applied to the spine object. Default `1`.
+</ParamField>
+
+<ParamField path="pivot" type="number | PointData">
+  Pivot point for rotation and positioning.
+</ParamField>
+
+<ParamField path="alpha" type="number">
+  Opacity. Default `1`.
+</ParamField>
+
+<ParamField path="visible" type="boolean">
+  Whether the skeleton is rendered. Default `true`.
+</ParamField>
+
+<ParamField path="zIndex" type="number">
+  Sort order within the parent. Default `0`.
+</ParamField>
+
+<ParamField path="cursor" type="Cursor">
+  CSS cursor string.
+</ParamField>
+
+<ParamField path="children" type="Snippet" required>
+  Spine child components.
+</ParamField>
+
+---
+
+## \<SpineTrack\>
+
+Plays a named animation on a specific track of the parent `<SpineProvider>` skeleton. Must be a child of `<SpineProvider>` or `<BaseSpineProvider>`.
+
+When `trackIndex` or `animationName` changes, the previous animation is cleared with `setEmptyAnimation` before the new one starts.
+
+### Props
+
+<ParamField path="trackIndex" type="number" required>
+  The track index to set the animation on. Track `0` is the base layer; higher indices layer on top.
+</ParamField>
+
+<ParamField path="animationName" type="string" required>
+  The name of the animation to play, as defined in the Spine editor.
+</ParamField>
+
+<ParamField path="loop" type="boolean">
+  Whether the animation loops. Default `false`.
+</ParamField>
+
+<ParamField path="timeScale" type="number">
+  Playback speed multiplier for this track. `1` = normal, `2` = double speed. Inherited from `SPINE_PIXI.TrackEntry`.
+</ParamField>
+
+<ParamField path="alpha" type="number">
+  Mix alpha (blend weight) for this track. `1` = full influence. Inherited from `SPINE_PIXI.TrackEntry`.
+</ParamField>
+
+### Example
+
+```svelte
+<SpineProvider key="character" width={256} anchor={0.5} x={400} y={500}>
+  <!-- Base animation on track 0 -->
+  <SpineTrack trackIndex={0} animationName="idle" loop={true} />
+  <!-- Layered animation on track 1 (e.g. a win reaction) -->
+  <SpineTrack trackIndex={1} animationName="celebrate" loop={false} />
+</SpineProvider>
+```
+
+---
+
+## \<SpineBone\>
+
+Directly manipulates a named bone in the parent skeleton. All props from `SPINE_PIXI.Bone` are accepted and synced reactively.
+
+<Note>
+  The `y` axis is inverted — `<SpineBone>` negates the `y` value before writing it to the bone (`bone.y = -props.y`). This matches the Svelte/PixiJS coordinate system where `y` increases downward.
+</Note>
+
+### Props
+
+<ParamField path="boneName" type="string" required>
+  The name of the bone to control, as defined in the Spine editor.
+</ParamField>
+
+<ParamField path="x" type="number">
+  Local x position of the bone.
+</ParamField>
+
+<ParamField path="y" type="number">
+  Local y position of the bone (negated before being written to Spine's coordinate system).
+</ParamField>
+
+<ParamField path="rotation" type="number">
+  Local rotation of the bone in degrees (Spine's native unit).
+</ParamField>
+
+<ParamField path="scaleX" type="number">
+  Local x scale of the bone.
+</ParamField>
+
+<ParamField path="scaleY" type="number">
+  Local y scale of the bone.
+</ParamField>
+
+### Example
+
+```svelte
+<script lang="ts">
+  let headX = $state(0);
+</script>
+
+<SpineProvider key="character" width={256} x={400} y={500}>
+  <SpineTrack trackIndex={0} animationName="idle" loop={true} />
+  <SpineBone boneName="head" x={headX} />
+</SpineProvider>
+```
+
+---
+
+## \<SpineSlot\>
+
+Attaches a container to a named slot in the parent skeleton. Child components are positioned and transformed to follow that slot's world transform each frame.
+
+When used inside a `<SpineEventEmitterProvider>`, the slot's children are hidden automatically when the slot has no active attachment.
+
+### Props
+
+<ParamField path="slotName" type="string" required>
+  The name of the slot to attach to, as defined in the Spine editor.
+</ParamField>
+
+<ParamField path="children" type="Snippet" required>
+  Components to render inside the slot container. They are positioned relative to the slot's world transform.
+</ParamField>
+
+### Example
+
+```svelte
+<SpineProvider key="character" width={256} x={400} y={500}>
+  <SpineTrack trackIndex={0} animationName="idle" loop={true} />
+  <SpineSlot slotName="rightHand">
+    <Sprite key="coin" anchor={0.5} />
+  </SpineSlot>
+</SpineProvider>
+```
+
+---
+
+## \<SpineEventEmitterProvider\>
+
+Wraps a `<SpineProvider>` subtree and bridges Spine's `beforeUpdateWorldTransforms` and `afterUpdateWorldTransforms` lifecycle hooks into a PixiJS `EventEmitter`. Required for `<SpineSlot>` visibility toggling based on slot attachment state.
+
+Must be placed inside a `<SpineProvider>`.
+
+### Props
+
+<ParamField path="children" type="Snippet" required>
+  `<SpineTrack>`, `<SpineSlot>`, and `<SpineBone>` components.
+</ParamField>
+
+### Example
+
+```svelte
+<SpineProvider key="character" width={256} anchor={0.5} x={400} y={500}>
+  <SpineEventEmitterProvider>
+    <SpineTrack trackIndex={0} animationName="idle" loop={true} />
+
+    <!--
+      With SpineEventEmitterProvider, this slot's children
+      are hidden when the slot has no active attachment.
+    -->
+    <SpineSlot slotName="weapon">
+      <Sprite key="sword" anchor={0.5} />
+    </SpineSlot>
+  </SpineEventEmitterProvider>
+</SpineProvider>
+```
+
+---
+
+## Common pattern: GlobalMultiplier
+
+A common use case is to scale a Spine skeleton based on a global multiplier (for example, to handle different screen sizes or win-celebration scaling effects).
+
+```svelte
+<!-- GlobalMultiplier.svelte -->
+<script lang="ts">
+  import { SpineProvider, SpineTrack } from 'pixi-svelte';
+
+  let { multiplier = 1 } = $props<{ multiplier?: number }>();
+</script>
+
+<SpineProvider
+  key="character"
+  width={256}
+  scale={multiplier}
+  anchor={0.5}
+  x={400}
+  y={500}
+>
+  <SpineTrack trackIndex={0} animationName="idle" loop={true} />
+</SpineProvider>
+```

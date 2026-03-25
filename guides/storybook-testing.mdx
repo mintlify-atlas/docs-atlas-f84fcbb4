@@ -1,0 +1,166 @@
+---
+title: "Testing with Storybook"
+description: "How to use Storybook to test game components, bookEvents, and full game modes"
+---
+
+Storybook is the primary testing tool for Web SDK games. It lets you test the whole game, intermediate components, and atomic components — from a single Svelte component rendered in isolation, to a single bookEvent animation, to a full multi-spin bonus mode book.
+
+## Running Storybook
+
+```bash
+pnpm run storybook --filter=lines
+```
+
+Replace `lines` with the `name` field from the target app's `package.json`. For example, if you're working on a `cluster` game, use `--filter=cluster`.
+
+<Warning>
+On Windows, initial Storybook startup can take up to 15 minutes. Once loaded, hot reloading is fast. The recommended approach is to implement each piece of a game in Storybook using task breakdown — test one emitterEvent at a time rather than waiting for a full build to verify things.
+</Warning>
+
+<Note>
+For Windows users, you may need to add `cross-env` to the storybook npm script in `package.json`:
+
+```json
+"storybook": "cross-env PUBLIC_CHROMATIC=true storybook dev -p 6001 public"
+```
+</Note>
+
+## Three types of stories
+
+### 1. `COMPONENTS/<Component>/component`
+
+Tests a single Svelte component in complete isolation. Useful for components that accept props directly, like `Symbol` or `Board`.
+
+Examples from the `lines` app:
+
+- `COMPONENTS/Game/component` — renders the full `<Game />` component including the loading screen
+- `COMPONENTS/Symbol/component` — renders `<Symbol />` with Storybook controls for state
+- `COMPONENTS/Symbol/symbols` — renders all symbols in all states at once
+
+These stories are defined in files like `ComponentsGame.stories.svelte` and `ComponentsSymbol.stories.svelte`.
+
+### 2. `MODE_<GAME_MODE>/bookEvent/<TYPE>`
+
+Tests a single bookEvent in isolation. An **Action** button appears in the corner of the canvas. Clicking it runs `playBookEvent()` with the corresponding test data from the events file.
+
+Examples:
+
+- `MODE_BASE/bookEvent/reveal` — spins the reels with a base game board
+- `MODE_BASE/bookEvent/freeSpinTrigger` — plays the scatter animation and free spin intro
+- `MODE_BONUS/bookEvent/updateFreeSpin` — updates the free spin counter
+- `MODE_BONUS/bookEvent/freeSpinEnd` — plays the free spin outro and transition back
+
+When the action completes successfully, the story displays:
+
+> ⓘ Action is resolved ✅
+
+If this message does not appear, the bookEventHandler has not resolved — there is a bug to fix before continuing.
+
+### 3. `MODE_<GAME_MODE>/book/random`
+
+Tests a full game book — a complete sequence of bookEvents as the RGS would return them. The Action button runs `playBookEvents()` which plays each event in the book one after another using `sequence()`.
+
+On each click, a random book is selected from the corresponding `*_books.ts` data file. Keep clicking to cycle through different scenarios: no-win spins, small wins, big wins, bonus triggers.
+
+## Story file structure
+
+The `lines` app has these story files in `apps/lines/src/stories/`:
+
+```
+stories/
+├── ComponentsGame.stories.svelte       # COMPONENTS/Game/*
+├── ComponentsSymbol.stories.svelte     # COMPONENTS/Symbol/*
+├── data/
+│   ├── base_books.ts                   # Books for MODE_BASE/book/random
+│   ├── base_events.ts                  # Events for MODE_BASE/bookEvent/*
+│   ├── bonus_books.ts                  # Books for MODE_BONUS/book/random
+│   └── bonus_events.ts                 # Events for MODE_BONUS/bookEvent/*
+├── ModeBaseBook.stories.svelte         # MODE_BASE/book/*
+├── ModeBaseBookEvent.stories.svelte    # MODE_BASE/bookEvent/*
+├── ModeBonusBook.stories.svelte        # MODE_BONUS/book/*
+└── ModeBonusBookEvent.stories.svelte   # MODE_BONUS/bookEvent/*
+```
+
+## How to add a new story
+
+Open the appropriate `Mode<GAME_MODE>BookEvent.stories.svelte` file. The pattern is consistent across all story files:
+
+```svelte
+<script lang="ts" module>
+  import { defineMeta } from '@storybook/addon-svelte-csf';
+
+  const { Story } = defineMeta({
+    title: 'MODE_BONUS/bookEvent',
+  });
+</script>
+
+<script lang="ts">
+  import {
+    StoryGameTemplate,
+    StoryLocale,
+    type TemplateArgs,
+    templateArgs,
+  } from 'components-storybook';
+
+  import Game from '../components/Game.svelte';
+  import { setContext } from '../game/context';
+  import { playBookEvent } from '../game/utils';
+  import events from './data/bonus_events';
+
+  setContext();
+</script>
+
+{#snippet template(args: TemplateArgs<any>)}
+  <StoryGameTemplate
+    skipLoadingScreen={args.skipLoadingScreen}
+    action={async () => {
+      await args.action?.(args.data);
+    }}
+  >
+    <StoryLocale lang="en">
+      <Game />
+    </StoryLocale>
+  </StoryGameTemplate>
+{/snippet}
+```
+
+Then add a `<Story>` block for your new event:
+
+```svelte
+<Story
+  name="updateGlobalMult"
+  args={templateArgs({
+    skipLoadingScreen: true,
+    data: events.updateGlobalMult,
+    action: async (data) => await playBookEvent(data, { bookEvents: [] }),
+  })}
+  {template}
+/>
+```
+
+- `name` becomes the story path: `MODE_BONUS/bookEvent/updateGlobalMult`
+- `data` is the bookEvent object from the events file
+- `action` is the function that runs when you click the **Action** button
+- `skipLoadingScreen: true` skips the asset loading screen for faster iteration
+
+## The Action button and resolution
+
+The Action button is rendered by `StoryGameTemplate` from `components-storybook`. It calls the `action` function you provide in `args`.
+
+For bookEvent stories, the action calls `playBookEvent(data, context)`, which looks up the handler in `bookEventHandlerMap` by `data.type` and runs it.
+
+For book stories, the action calls `playBookEvents(book)`, which runs each event in the book's `events` array in sequence using `sequence()` — one after another, not all at once.
+
+The **ⓘ Action is resolved ✅** message appears when the `action` Promise resolves. For complex bookEvents with animations, this happens after all `broadcastAsync` calls have completed.
+
+## Best practices
+
+<Tip>
+Implement each feature step by step in Storybook using the task breakdown pattern. Test each emitterEvent individually before integrating into a full book test. This approach catches issues early and makes debugging much easier.
+</Tip>
+
+- Build the story first, then implement the handler. The story gives you immediate feedback.
+- Use `COMPONENTS/<Component>/component` stories for pure visual testing of a component's props.
+- Use `MODE_<GAME_MODE>/bookEvent/<TYPE>` stories during development to verify each bookEvent works.
+- Use `MODE_<GAME_MODE>/book/random` stories as the final integration test before marking a feature done.
+- If a component is hard to debug through emitterEvents, create a `COMPONENTS/<Component>/emitterEvent` story that sends a single emitterEvent directly via controls.

@@ -1,0 +1,331 @@
+---
+title: "Container & Graphics"
+description: "Layout containers and procedural drawing components"
+---
+
+## Overview
+
+Containers group display objects and control their position, visibility, and layer order. Graphics components let you draw shapes programmatically using the PixiJS graphics API.
+
+### Coordinate system
+
+PixiJS uses a **top-left origin** — `x=0, y=0` is the top-left corner of the canvas. The `x` axis increases to the right, and the `y` axis increases downward.
+
+The `anchor` prop on shape components shifts the pivot point of the object. `anchor={0}` (default) places the origin at the top-left of the object. `anchor={0.5}` centres it. `anchor={1}` places it at the bottom-right.
+
+---
+
+## \<Container\>
+
+A transparent display-object group. Nest other components inside it to control their collective position, scale, alpha, and z-order.
+
+`<Container>` accepts all props from `PIXI.ContainerOptions`. The most commonly used props are listed below.
+
+### Props
+
+<ParamField path="x" type="number">
+  Horizontal position in pixels from the parent's origin. Default `0`.
+</ParamField>
+
+<ParamField path="y" type="number">
+  Vertical position in pixels from the parent's origin. Default `0`.
+</ParamField>
+
+<ParamField path="width" type="number">
+  Override the container's width. Scales child content to fit.
+</ParamField>
+
+<ParamField path="height" type="number">
+  Override the container's height. Scales child content to fit.
+</ParamField>
+
+<ParamField path="scale" type="number | PointData">
+  Uniform scale (`number`) or per-axis scale (`{ x, y }`). Default `1`.
+</ParamField>
+
+<ParamField path="alpha" type="number">
+  Opacity from `0` (invisible) to `1` (fully opaque). Default `1`.
+</ParamField>
+
+<ParamField path="visible" type="boolean">
+  When `false`, the container and all its children are hidden and excluded from rendering. Default `true`.
+</ParamField>
+
+<ParamField path="zIndex" type="number">
+  Sort order within the parent container. Higher values render on top. Default `0`.
+</ParamField>
+
+<ParamField path="rotation" type="number">
+  Rotation in radians. Default `0`.
+</ParamField>
+
+<ParamField path="pivot" type="number | PointData">
+  The pivot point used for rotation and scaling, in local coordinates.
+</ParamField>
+
+<ParamField path="sortableChildren" type="boolean">
+  When `true`, children are automatically sorted by `zIndex` before each render. Default `false`.
+</ParamField>
+
+<ParamField path="interactiveChildren" type="boolean">
+  When `false`, pointer events are disabled for all children. Default `true`.
+</ParamField>
+
+<ParamField path="cursor" type="Cursor">
+  CSS cursor string shown when the pointer is over this container. Accepts standard CSS cursor values.
+</ParamField>
+
+<ParamField path="children" type="Snippet" required>
+  Child components to render inside this container.
+</ParamField>
+
+### Example
+
+```svelte
+<Container x={100} y={200} alpha={0.8} zIndex={2}>
+  <Sprite key="background" />
+  <Container x={50} y={50} scale={0.5}>
+    <Sprite key="icon" />
+  </Container>
+</Container>
+```
+
+---
+
+## \<Graphics\>
+
+Renders arbitrary shapes using a draw callback. The callback receives a `PIXI.Graphics` instance and is re-run reactively whenever the `draw` prop changes.
+
+### Props
+
+<ParamField path="draw" type="(graphics: PIXI.Graphics) => void" required>
+  A function called with the `PIXI.Graphics` object. Use the full PixiJS graphics API inside this function to draw shapes, lines, fills, and strokes. The graphics context is cleared before each call.
+</ParamField>
+
+<ParamField path="isMask" type="boolean">
+  When `true`, this graphics object is applied as a mask to the parent container. When `false` or omitted, the mask is removed. Default `undefined`.
+</ParamField>
+
+<ParamField path="x" type="number">
+  Horizontal position. Default `0`.
+</ParamField>
+
+<ParamField path="y" type="number">
+  Vertical position. Default `0`.
+</ParamField>
+
+<ParamField path="alpha" type="number">
+  Opacity from `0` to `1`. Default `1`.
+</ParamField>
+
+<ParamField path="visible" type="boolean">
+  Whether the graphic is rendered. Default `true`.
+</ParamField>
+
+<ParamField path="zIndex" type="number">
+  Sort order within the parent. Default `0`.
+</ParamField>
+
+<ParamField path="cursor" type="Cursor">
+  CSS cursor string for pointer interaction.
+</ParamField>
+
+### Example
+
+```svelte
+<script lang="ts">
+  let progress = $state(0.75);
+</script>
+
+<!-- Redraws automatically when `progress` changes -->
+<Graphics
+  draw={(g) => {
+    g.roundRect(0, 0, 400, 20, 10);
+    g.fill({ color: 0x333333 });
+    g.roundRect(0, 0, 400 * progress, 20, 10);
+    g.fill({ color: 0x00cc66 });
+  }}
+/>
+```
+
+---
+
+## \<Circle\>
+
+A convenience wrapper around `<Graphics>` that draws a filled circle with an optional border. Supports the `anchor` prop to control the pivot point.
+
+### Props
+
+<ParamField path="diameter" type="number" required>
+  The diameter of the circle in pixels.
+</ParamField>
+
+<ParamField path="anchor" type="PixiPoint">
+  Controls the pivot point. `0` = top-left, `0.5` = centre, `1` = bottom-right. Accepts a number (uniform) or `{ x, y }`. Default `undefined` (top-left).
+</ParamField>
+
+<ParamField path="backgroundColor" type="PIXI.ColorSource">
+  Fill colour. Accepts hex numbers (`0xff0000`), CSS colour strings (`'#ff0000'`), or RGB arrays. Default `0x000000`.
+</ParamField>
+
+<ParamField path="backgroundAlpha" type="number">
+  Fill opacity from `0` to `1`. Default `1`.
+</ParamField>
+
+<ParamField path="borderColor" type="PIXI.ColorSource">
+  Stroke colour. Default `0x000000`.
+</ParamField>
+
+<ParamField path="borderWidth" type="number">
+  Stroke width in pixels. Default `0` (no border).
+</ParamField>
+
+<ParamField path="borderAlpha" type="number">
+  Stroke opacity from `0` to `1`. Default `1`.
+</ParamField>
+
+<ParamField path="x" type="number">
+  Horizontal position. Default `0`.
+</ParamField>
+
+<ParamField path="y" type="number">
+  Vertical position. Default `0`.
+</ParamField>
+
+<ParamField path="alpha" type="number">
+  Object opacity. Default `1`.
+</ParamField>
+
+<ParamField path="visible" type="boolean">
+  Whether the circle is rendered. Default `true`.
+</ParamField>
+
+<ParamField path="zIndex" type="number">
+  Sort order within the parent. Default `0`.
+</ParamField>
+
+<ParamField path="isMask" type="boolean">
+  Apply this circle as a mask on the parent container.
+</ParamField>
+
+<ParamField path="cursor" type="Cursor">
+  CSS cursor string.
+</ParamField>
+
+### Example
+
+```svelte
+<Circle
+  diameter={120}
+  anchor={0.5}
+  backgroundColor={0xff4444}
+  borderColor={0xffffff}
+  borderWidth={3}
+  x={200}
+  y={200}
+/>
+```
+
+---
+
+## \<Rectangle\>
+
+A convenience wrapper around `<Graphics>` that draws a filled rectangle with optional rounded corners and border. Supports the `anchor` prop.
+
+### Props
+
+<ParamField path="width" type="number" required>
+  Width of the rectangle in pixels.
+</ParamField>
+
+<ParamField path="height" type="number" required>
+  Height of the rectangle in pixels.
+</ParamField>
+
+<ParamField path="anchor" type="PixiPoint">
+  Controls the pivot point. `0` = top-left, `0.5` = centre. Default `undefined` (top-left).
+</ParamField>
+
+<ParamField path="borderRadius" type="number">
+  Corner radius for rounded rectangles. `0` = sharp corners. Default `0`.
+</ParamField>
+
+<ParamField path="backgroundColor" type="PIXI.ColorSource">
+  Fill colour. Default `0x000000`.
+</ParamField>
+
+<ParamField path="backgroundAlpha" type="number">
+  Fill opacity from `0` to `1`. Default `1`.
+</ParamField>
+
+<ParamField path="borderColor" type="PIXI.ColorSource">
+  Stroke colour. Default `0x000000`.
+</ParamField>
+
+<ParamField path="borderWidth" type="number">
+  Stroke width in pixels. Default `0` (no border).
+</ParamField>
+
+<ParamField path="borderAlpha" type="number">
+  Stroke opacity from `0` to `1`. Default `1`.
+</ParamField>
+
+<ParamField path="x" type="number">
+  Horizontal position. Default `0`.
+</ParamField>
+
+<ParamField path="y" type="number">
+  Vertical position. Default `0`.
+</ParamField>
+
+<ParamField path="alpha" type="number">
+  Object opacity. Default `1`.
+</ParamField>
+
+<ParamField path="visible" type="boolean">
+  Whether the rectangle is rendered. Default `true`.
+</ParamField>
+
+<ParamField path="zIndex" type="number">
+  Sort order within the parent. Default `0`.
+</ParamField>
+
+<ParamField path="isMask" type="boolean">
+  Apply this rectangle as a mask on the parent container.
+</ParamField>
+
+<ParamField path="cursor" type="Cursor">
+  CSS cursor string.
+</ParamField>
+
+### Example
+
+```svelte
+<!-- Rounded card background -->
+<Rectangle
+  width={320}
+  height={180}
+  anchor={0.5}
+  borderRadius={16}
+  backgroundColor={0x1a1a2e}
+  backgroundAlpha={0.9}
+  borderColor={0x4444ff}
+  borderWidth={2}
+  x={400}
+  y={300}
+/>
+```
+
+---
+
+## Using Graphics as a mask
+
+Set `isMask={true}` on any `<Graphics>`, `<Circle>`, or `<Rectangle>` to clip the parent container to that shape.
+
+```svelte
+<Container>
+  <!-- This circle clips everything else in the container -->
+  <Circle diameter={200} anchor={0.5} isMask={true} x={100} y={100} />
+  <Sprite key="photo" anchor={0.5} x={100} y={100} />
+</Container>
+```

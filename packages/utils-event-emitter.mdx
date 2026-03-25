@@ -1,0 +1,200 @@
+---
+title: "utils-event-emitter"
+description: "Type-safe event bus connecting game logic to Svelte components"
+---
+
+`utils-event-emitter` implements [event-driven programming](https://en.wikipedia.org/wiki/Event-driven_programming) for the SDK. It connects the JavaScript scope (book event handlers, state machines) to Svelte component scope without passing props through deep component trees.
+
+## createEventEmitter()
+
+Factory function typed by a union of all possible emitter events. Create it once per game in `src/game/eventEmitter.ts`.
+
+```ts
+import { createEventEmitter } from 'utils-event-emitter';
+
+export function createEventEmitter<TEmitterEvent extends EmitterEventBase>()
+```
+
+### Constraint
+
+`TEmitterEvent` must extend `EmitterEventBase`:
+
+```ts
+export type EmitterEventBase = {
+  type: string;
+};
+```
+
+In practice every game defines a discriminated union type:
+
+```ts
+export type EmitterEvent =
+  | { type: 'boardSpin'; board: RawBoard }
+  | { type: 'boardSettle'; board: RawBoard }
+  | { type: 'totalWinUpdate'; amount: number }
+  | { type: 'freeSpinCounterShow' }
+  | { type: 'freeSpinCounterHide' }
+  | { type: 'freeSpinCounterUpdate'; current?: number; total?: number };
+
+export const { eventEmitter } = createEventEmitter<EmitterEvent>();
+```
+
+### Return value
+
+```ts
+{
+  eventEmitter: {
+    subscribeOnMount: (map: Partial<EmitterEventHandlerMap>) => void;
+    broadcast:       (emitterEvent: TEmitterEvent) => void;
+    broadcastAsync:  (emitterEvent: TEmitterEvent) => Promise<any[]>;
+  }
+}
+```
+
+## Methods
+
+### subscribeOnMount()
+
+Registers a map of handlers inside a Svelte component's `onMount` lifecycle. Automatically unsubscribes when the component is destroyed.
+
+```ts
+const subscribeOnMount = (
+  emitterEventHandlerMap: Partial<EmitterEventHandlerMap>,
+) => void
+```
+
+The `EmitterEventHandlerMap` type is keyed by every `type` in the `TEmitterEvent` union, and each value receives the narrowed event type for that key:
+
+```ts
+type EmitterEventHandlerMap = {
+  [T in EmitterEventType]: (emitterEvent: Extract<TEmitterEvent, { type: T }>) => any
+};
+```
+
+**Example — sync handler:**
+
+```svelte
+<!-- FreeSpinCounter.svelte -->
+<script lang="ts">
+  const context = getContext();
+
+  context.eventEmitter.subscribeOnMount({
+    freeSpinCounterShow: () => (show = true),
+    freeSpinCounterHide: () => (show = false),
+    freeSpinCounterUpdate: (emitterEvent) => {
+      if (emitterEvent.current !== undefined) current = emitterEvent.current;
+      if (emitterEvent.total  !== undefined) total  = emitterEvent.total;
+    },
+  });
+</script>
+```
+
+### broadcast()
+
+Synchronously dispatches an event to all current subscribers. Use this for fire-and-forget updates (show/hide a component, update a counter).
+
+```ts
+const broadcast = (emitterEvent: TEmitterEvent) => void
+```
+
+```ts
+eventEmitter.broadcast({ type: 'freeSpinCounterShow' });
+eventEmitter.broadcast({ type: 'freeSpinCounterUpdate', current: 3, total: 10 });
+```
+
+Internally it iterates the subscription `Set` and calls each handler synchronously:
+
+```ts
+const broadcast = (emitterEvent: TEmitterEvent) => {
+  subscriptions.forEach((emitterEventHandler) => {
+    emitterEventHandler(emitterEvent);
+  });
+};
+```
+
+### broadcastAsync()
+
+Dispatches an event to all subscribers and returns `Promise.all` of every handler's return value. Use `await eventEmitter.broadcastAsync(...)` when you need to wait for all animations or async operations triggered by the event to finish.
+
+```ts
+const broadcastAsync = (emitterEvent: TEmitterEvent) => Promise<any[]>
+```
+
+```ts
+// bookEventHandlerMap.ts
+await eventEmitter.broadcastAsync({
+  type: 'freeSpinIntroUpdate',
+  totalFreeSpins: bookEvent.totalFs,
+});
+```
+
+```svelte
+<!-- FreeSpinIntro.svelte -->
+<script lang="ts">
+  context.eventEmitter.subscribeOnMount({
+    freeSpinIntroUpdate: async (emitterEvent) => {
+      freeSpinsFromEvent = emitterEvent.totalFreeSpins;
+      // The broadcastAsync caller waits until this resolves
+      await waitForResolve((resolve) => (oncomplete = resolve));
+    },
+  });
+</script>
+```
+
+## ContextEventEmitter
+
+`utils-event-emitter` also exports context helpers so `eventEmitter` can be read by any descendant component without prop drilling:
+
+```ts
+import {
+  setContextEventEmitter,
+  getContextEventEmitter,
+} from 'utils-event-emitter';
+```
+
+```ts
+// context.ts (context key: '@@eventEmitter')
+export function setContextEventEmitter<TEmitterEvent extends EmitterEventBase>(
+  value: ContextEventEmitter<TEmitterEvent>,
+): void
+
+export function getContextEventEmitter<TEmitterEvent extends EmitterEventBase>(): 
+  ContextEventEmitter<TEmitterEvent>
+```
+
+`setContextEventEmitter` must be called at the entry level of the app (same place as the other `setContext*` calls).
+
+## Typical setup pattern
+
+```ts
+// apps/lines/src/game/eventEmitter.ts
+import { createEventEmitter } from 'utils-event-emitter';
+import type { EmitterEventUi } from 'components-ui-pixi';
+import type { EmitterEventGame } from './typesEmitterEvent';
+
+export type EmitterEvent = EmitterEventUi | EmitterEventGame;
+export const { eventEmitter } = createEventEmitter<EmitterEvent>();
+```
+
+```ts
+// apps/lines/src/game/context.ts
+import { setContextEventEmitter } from 'utils-event-emitter';
+import { eventEmitter } from './eventEmitter';
+
+export const setContext = () => {
+  setContextEventEmitter<EmitterEvent>({ eventEmitter });
+  // ... other contexts
+};
+```
+
+```svelte
+<!-- Any child component -->
+<script lang="ts">
+  import { getContextEventEmitter } from 'utils-event-emitter';
+  const { eventEmitter } = getContextEventEmitter();
+
+  eventEmitter.subscribeOnMount({
+    myEvent: (e) => { /* handle */ },
+  });
+</script>
+```

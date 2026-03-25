@@ -1,0 +1,248 @@
+---
+title: "Particles"
+description: "Particle system components for visual effects"
+---
+
+## Overview
+
+The SDK provides two approaches to particles:
+
+- **`<ParticleEmitter>`** — high-level emitter backed by [`@barvynkoa/particle-emitter`](https://github.com/barvynkoa/particle-emitter). Driven by a JSON config and a spritesheet asset key.
+- **`<ParticleContainer>` + `<Particles>`** — lower-level approach using PixiJS's native `PIXI.ParticleContainer`. You control initialisation and per-frame update logic directly.
+
+---
+
+## \<ParticleEmitter\>
+
+A declarative particle emitter. Reads its texture from `stateApp.loadedAssets` using `key`, upgrades the config to the latest format, and drives the emitter on the PixiJS ticker.
+
+The emitter is destroyed automatically when the component is unmounted.
+
+### Props
+
+<ParamField path="key" type="string" required>
+  Asset manifest key for the particle spritesheet (`type: 'spriteSheet'`). The loaded texture array is passed to the emitter config automatically.
+</ParamField>
+
+<ParamField path="config" type="EmitterConfigV3 | EmitterConfigV2 | EmitterConfigV1" required>
+  The particle emitter configuration object. All three config versions from `@barvynkoa/particle-emitter` are accepted — the SDK upgrades older formats automatically via `upgradeConfig`.
+</ParamField>
+
+<ParamField path="emit" type="boolean">
+  When `true`, reinitialises the emitter with the current config. Toggle this to trigger a burst or restart emission. Synced from `Emitter.emit`.
+</ParamField>
+
+<ParamField path="emitSpeed" type="number">
+  A multiplier applied to `ticker.deltaMS` before calling `emitter.update()`. Controls the effective simulation speed. Default `0.00234`.
+</ParamField>
+
+<ParamField path="spawnChance" type="number">
+  Probability (0–1) that a particle will spawn on any given update. Inherited from `Emitter`. Default `1`.
+</ParamField>
+
+<ParamField path="maxParticles" type="number">
+  Maximum number of live particles at any time. Inherited from `Emitter`.
+</ParamField>
+
+<ParamField path="particleConstructor" type="typeof Particle">
+  Custom particle class constructor. Inherited from `Emitter`.
+</ParamField>
+
+### Emitter config
+
+The `config` prop accepts the `EmitterConfigV3` format from `@barvynkoa/particle-emitter`. Key fields:
+
+```typescript
+import type { EmitterConfigV3 } from '@barvynkoa/particle-emitter';
+
+const config: EmitterConfigV3 = {
+  lifetime: { min: 0.5, max: 1.5 },
+  frequency: 0.008,
+  spawnChance: 1,
+  maxParticles: 100,
+  pos: { x: 0, y: 0 },
+  addAtBack: false,
+  behaviors: [
+    {
+      type: 'alpha',
+      config: { alpha: { list: [{ value: 1, time: 0 }, { value: 0, time: 1 }] } },
+    },
+    {
+      type: 'scale',
+      config: { scale: { list: [{ value: 1, time: 0 }, { value: 0.3, time: 1 }] } },
+    },
+    {
+      type: 'moveSpeed',
+      config: { speed: { list: [{ value: 200, time: 0 }, { value: 100, time: 1 }] } },
+    },
+    {
+      type: 'spawnShape',
+      config: { type: 'torus', data: { x: 0, y: 0, radius: 10 } },
+    },
+  ],
+};
+```
+
+### Example
+
+```svelte
+<!-- Asset manifest: sparks: { type: 'spriteSheet', src: '/fx/sparks.json' } -->
+<script lang="ts">
+  import { ParticleEmitter } from 'pixi-svelte';
+  import type { EmitterConfigV3 } from '@barvynkoa/particle-emitter';
+
+  let emitting = $state(false);
+
+  const config: EmitterConfigV3 = {
+    lifetime: { min: 0.4, max: 0.9 },
+    frequency: 0.01,
+    spawnChance: 1,
+    maxParticles: 80,
+    pos: { x: 0, y: 0 },
+    addAtBack: false,
+    behaviors: [
+      {
+        type: 'alpha',
+        config: { alpha: { list: [{ value: 1, time: 0 }, { value: 0, time: 1 }] } },
+      },
+      {
+        type: 'scale',
+        config: { scale: { list: [{ value: 0.8, time: 0 }, { value: 0.1, time: 1 }] } },
+      },
+      {
+        type: 'moveSpeed',
+        config: { speed: { list: [{ value: 300, time: 0 }, { value: 50, time: 1 }] } },
+      },
+      {
+        type: 'spawnShape',
+        config: { type: 'torus', data: { x: 0, y: 0, radius: 5 } },
+      },
+    ],
+  };
+</script>
+
+<Container x={400} y={300}>
+  <ParticleEmitter key="sparks" {config} emit={emitting} />
+</Container>
+```
+
+---
+
+## \<ParticleContainer\>
+
+A wrapper around `PIXI.ParticleContainer` that provides the particle parent context to child `<Particles>` components. More performant than a regular `<Container>` for large numbers of identical sprites.
+
+### Props
+
+<ParamField path="children" type="Snippet" required>
+  One or more `<Particles>` components.
+</ParamField>
+
+<ParamField path="dynamicProperties" type="Partial<PIXI.ParticleContainerProperties>">
+  An object specifying which properties (`vertices`, `position`, `rotation`, `uvs`, `tint`) are updated per particle. Enabling more properties increases GPU upload cost. From `PIXI.ParticleContainerOptions`.
+</ParamField>
+
+<ParamField path="maxSize" type="number">
+  Maximum number of particles. Must be set at creation time. From `PIXI.ParticleContainerOptions`.
+</ParamField>
+
+<ParamField path="batchSize" type="number">
+  Number of particles per draw call batch. From `PIXI.ParticleContainerOptions`.
+</ParamField>
+
+<ParamField path="autoResize" type="boolean">
+  Whether the container automatically resizes to accommodate more particles than `maxSize`. From `PIXI.ParticleContainerOptions`.
+</ParamField>
+
+<ParamField path="x" type="number">
+  Horizontal position. Default `0`.
+</ParamField>
+
+<ParamField path="y" type="number">
+  Vertical position. Default `0`.
+</ParamField>
+
+<ParamField path="alpha" type="number">
+  Opacity. Default `1`.
+</ParamField>
+
+<ParamField path="visible" type="boolean">
+  Whether the container is rendered. Default `true`.
+</ParamField>
+
+<ParamField path="zIndex" type="number">
+  Sort order within the parent. Default `0`.
+</ParamField>
+
+<ParamField path="cursor" type="Cursor">
+  CSS cursor string.
+</ParamField>
+
+---
+
+## \<Particles\>
+
+A low-level particle layer. Creates `size` `PIXI.Particle` instances using a texture resolved from `stateApp.loadedAssets`, calls `init` once on mount, and calls `update` on every PixiJS ticker tick.
+
+Must be a child of `<ParticleContainer>`.
+
+### Props
+
+<ParamField path="key" type="string" required>
+  Asset manifest key for a `sprite` asset. The loaded texture is applied to every particle instance.
+</ParamField>
+
+<ParamField path="size" type="number" required>
+  The number of `PIXI.Particle` instances to create.
+</ParamField>
+
+<ParamField path="init" type="(particles: PIXI.Particle[]) => void" required>
+  Called once after the particles are created. Set initial positions, scales, alphas, velocities, etc.
+</ParamField>
+
+<ParamField path="update" type="(particles: PIXI.Particle[]) => void" required>
+  Called every frame via the PixiJS ticker. Mutate each particle's properties to simulate motion, fade, etc. The `ParticleContainer` is updated automatically after this callback.
+</ParamField>
+
+### Example
+
+```svelte
+<!-- Asset manifest: star: { type: 'sprite', src: '/images/star.png' } -->
+<script lang="ts">
+  import { ParticleContainer, Particles } from 'pixi-svelte';
+  import * as PIXI from 'pixi.js';
+
+  type ParticleState = { vx: number; vy: number };
+  const states: ParticleState[] = [];
+
+  function init(particles: PIXI.Particle[]) {
+    particles.forEach((p, i) => {
+      p.x = Math.random() * 800;
+      p.y = Math.random() * 600;
+      p.scale.set(Math.random() * 0.5 + 0.2);
+      p.alpha = Math.random();
+      states[i] = {
+        vx: (Math.random() - 0.5) * 2,
+        vy: (Math.random() - 0.5) * 2,
+      };
+    });
+  }
+
+  function update(particles: PIXI.Particle[]) {
+    particles.forEach((p, i) => {
+      p.x += states[i].vx;
+      p.y += states[i].vy;
+      if (p.x > 800) p.x = 0;
+      if (p.y > 600) p.y = 0;
+    });
+  }
+</script>
+
+<ParticleContainer>
+  <Particles key="star" size={200} {init} {update} />
+</ParticleContainer>
+```
+
+<Note>
+  `<Particles>` adds particles to the `ParticleContainer` at mount time and never removes them. To hide unused particles, set `alpha = 0` in your `update` function rather than removing them.
+</Note>

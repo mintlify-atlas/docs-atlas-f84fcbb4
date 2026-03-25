@@ -1,0 +1,296 @@
+---
+title: "Adding a BookEvent"
+description: "Step-by-step guide to implementing a new bookEvent in your game"
+---
+
+This guide walks through every file you need to touch when adding a new `bookEvent` to your game. We'll use `updateGlobalMult` — a bonus game multiplier feature — as the running example throughout.
+
+<Note>
+A **book** is the JSON payload returned by the RGS for each game round. It contains an array of **bookEvents** that are played in sequence. The order of bookEvents matters — `win` should always come after `reveal`, for example.
+</Note>
+
+<Steps>
+  <Step title="Add test data to bonus_books.ts">
+    `apps/lines/src/stories/data/bonus_books.ts` holds an array of complete bonus books. The story `MODE_BONUS/book/random` randomly picks from this array to simulate RGS responses.
+
+    Add a new `updateGlobalMult` event into an existing book's `events` array (or create a new book). Copy the exact shape from your math package output:
+
+    ```json
+    {
+      "type": "updateGlobalMult",
+      "globalMult": 3
+    }
+    ```
+
+    Place it at the right position in the sequence — global multiplier updates typically come before the spin reveal or win events that use the multiplier.
+  </Step>
+
+  <Step title="Add to bonus_events.ts">
+    `apps/lines/src/stories/data/bonus_events.ts` exports a flat object where each key is a `bookEvent.type`. The per-event stories (`MODE_BONUS/bookEvent/<TYPE>`) use this to run a single bookEvent in isolation.
+
+    ```typescript
+    // bonus_events.ts
+    export default {
+      // ... existing events ...
+      updateGlobalMult: {
+        type: 'updateGlobalMult',
+        globalMult: 3,
+      },
+      // ...
+    }
+    ```
+  </Step>
+
+  <Step title="Register a story in ModeBonusBookEvent.stories.svelte">
+    `apps/lines/src/stories/ModeBonusBookEvent.stories.svelte` defines all sub-stories under `MODE_BONUS/bookEvent`. Add a `<Story>` block for your new event:
+
+    ```svelte
+    <!-- ModeBonusBookEvent.stories.svelte -->
+    <Story
+      name="updateGlobalMult"
+      args={templateArgs({
+        skipLoadingScreen: true,
+        data: events.updateGlobalMult,
+        action: async (data) => await playBookEvent(data, { bookEvents: [] }),
+      })}
+      {template}
+    />
+    ```
+
+    After this step you will see `MODE_BONUS/bookEvent/updateGlobalMult` in the Storybook sidebar with an **Action** button. Clicking it does nothing yet — that is expected. You've set up the test harness first.
+
+    <Tip>
+    Setting up the story before writing any logic is intentional. It gives you a live environment to verify each implementation step as you go.
+    </Tip>
+  </Step>
+
+  <Step title="Define the TypeScript type in typesBookEvent.ts">
+    `apps/lines/src/game/typesBookEvent.ts` contains the `BookEvent` union type. Add a new member type for your bookEvent:
+
+    ```typescript
+    // typesBookEvent.ts
+
+    type BookEventUpdateGlobalMult = {
+      index: number;
+      type: 'updateGlobalMult';
+      globalMult: number;
+    };
+
+    export type BookEvent =
+      | BookEventReveal
+      | BookEventWinInfo
+      | BookEventSetTotalWin
+      | BookEventFreeSpinTrigger
+      | BookEventUpdateFreeSpin
+      | BookEventFinalWin
+      | BookEventSetWin
+      | BookEventFreeSpinEnd
+      | BookEventUpdateGlobalMult  // <-- add here
+      // ...
+    ;
+    ```
+
+    `BookEvent` is a **TypeScript union type**. `BookEventOfType<T>` (defined at the bottom of this file) uses `Extract` to narrow the union to a specific member — this is what gives you typed `bookEvent` parameters in handlers.
+  </Step>
+
+  <Step title="Add the bookEventHandler in bookEventHandlerMap.ts">
+    `apps/lines/src/game/bookEventHandlerMap.ts` maps each `bookEvent.type` string to an async handler function. Add a handler for `updateGlobalMult`:
+
+    ```typescript
+    // bookEventHandlerMap.ts
+
+    export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContext> = {
+      // ... existing handlers ...
+      updateGlobalMult: async (bookEvent: BookEventOfType<'updateGlobalMult'>) => {
+        eventEmitter.broadcast({ type: 'globalMultiplierShow' });
+        eventEmitter.broadcast({
+          type: 'globalMultiplierUpdate',
+          multiplier: bookEvent.globalMult,
+        });
+      },
+      // ...
+    };
+    ```
+
+    Because you added `BookEventUpdateGlobalMult` to the union in the previous step, TypeScript will provide full intellisense on `bookEvent` — including `bookEvent.globalMult`.
+
+    <Note>
+    The handler broadcasts **emitterEvents** via `eventEmitter.broadcast()` (sync, fire-and-forget) or `eventEmitter.broadcastAsync()` (async, waits for all subscribers to resolve). Use `broadcastAsync` when you need to wait for an animation to complete before proceeding.
+    </Note>
+  </Step>
+
+  <Step title="Create the Svelte component with emitterEvent type union">
+    Create `apps/lines/src/components/GlobalMultiplier.svelte`. All logic related to the global multiplier should live here.
+
+    Start by declaring the `EmitterEventGlobalMultiplier` union type in the module script block. This type is exported so other files can import it:
+
+    ```svelte
+    <!-- GlobalMultiplier.svelte -->
+
+    <script lang="ts" module>
+      export type EmitterEventGlobalMultiplier =
+        | { type: 'globalMultiplierShow' }
+        | { type: 'globalMultiplierHide' }
+        | { type: 'globalMultiplierUpdate'; multiplier: number };
+    </script>
+    ```
+
+    `EmitterEventGlobalMultiplier` is a **TypeScript union type**, just like `BookEvent`. Each member corresponds to one atomic action this component can respond to.
+  </Step>
+
+  <Step title="Add emitterEvent types to typesEmitterEvent.ts">
+    `apps/lines/src/game/typesEmitterEvent.ts` assembles the `EmitterEventGame` union from all per-component exports:
+
+    ```typescript
+    // typesEmitterEvent.ts
+
+    import type { EmitterEventBoard } from '../components/Board.svelte';
+    import type { EmitterEventBoardFrame } from '../components/BoardFrame.svelte';
+    import type { EmitterEventFreeSpinIntro } from '../components/FreeSpinIntro.svelte';
+    import type { EmitterEventFreeSpinCounter } from '../components/FreeSpinCounter.svelte';
+    import type { EmitterEventFreeSpinOutro } from '../components/FreeSpinOutro.svelte';
+    import type { EmitterEventWin } from '../components/Win.svelte';
+    import type { EmitterEventSound } from '../components/Sound.svelte';
+    import type { EmitterEventTransition } from '../components/Transition.svelte';
+    import type { EmitterEventGlobalMultiplier } from '../components/GlobalMultiplier.svelte'; // <-- add
+
+    export type EmitterEventGame =
+      | EmitterEventBoard
+      | EmitterEventBoardFrame
+      | EmitterEventWin
+      | EmitterEventFreeSpinIntro
+      | EmitterEventFreeSpinCounter
+      | EmitterEventFreeSpinOutro
+      | EmitterEventSound
+      | EmitterEventTransition
+      | EmitterEventGlobalMultiplier; // <-- add
+    ```
+  </Step>
+
+  <Step title="Update eventEmitter.ts to include the new EmitterEvent types">
+    `apps/lines/src/game/eventEmitter.ts` composes the top-level `EmitterEvent` union and creates the singleton `eventEmitter` instance:
+
+    ```typescript
+    // eventEmitter.ts
+
+    import type { EmitterEventGame } from './typesEmitterEvent';
+
+    export type EmitterEvent = EmitterEventUi | EmitterEventHotKey | EmitterEventGame;
+    export const { eventEmitter } = createEventEmitter<EmitterEvent>();
+    ```
+
+    Because `EmitterEventGame` now includes `EmitterEventGlobalMultiplier`, all `eventEmitter.broadcast()` calls in the codebase will now offer `globalMultiplierShow`, `globalMultiplierHide`, and `globalMultiplierUpdate` as valid types in the intellisense autocomplete.
+  </Step>
+
+  <Step title="Implement the component's subscribeOnMount handler">
+    Back in `GlobalMultiplier.svelte`, add the component script and subscribe to the emitter events:
+
+    ```svelte
+    <!-- GlobalMultiplier.svelte -->
+
+    <script lang="ts" module>
+      export type EmitterEventGlobalMultiplier =
+        | { type: 'globalMultiplierShow' }
+        | { type: 'globalMultiplierHide' }
+        | { type: 'globalMultiplierUpdate'; multiplier: number };
+    </script>
+
+    <script lang="ts">
+      import { getContext } from '../game/context';
+
+      const context = getContext();
+
+      let show = $state(false);
+      let multiplier = $state(1);
+
+      context.eventEmitter.subscribeOnMount({
+        globalMultiplierShow: () => (show = true),
+        globalMultiplierHide: () => (show = false),
+        globalMultiplierUpdate: async (emitterEvent) => {
+          multiplier = emitterEvent.multiplier;
+          console.log(emitterEvent.multiplier);
+        },
+      });
+    </script>
+
+    <SpineProvider key="globalMultiplier" width={PANEL_WIDTH}>
+      <!-- your pixi-svelte components here -->
+      <SpineTrack trackIndex={0} {animationName} />
+    </SpineProvider>
+    ```
+
+    `subscribeOnMount` automatically registers the handlers when the component mounts and unregisters them on destroy, so you don't need to manage lifecycle manually.
+
+    Each handler in the map follows the Single Responsibility Principle — `globalMultiplierShow` only shows the component, `globalMultiplierUpdate` only updates the value. See the [Task Breakdown Pattern](/guides/task-breakdown) guide for why this matters.
+  </Step>
+
+  <Step title="Test individually in Storybook">
+    Run Storybook and navigate to `MODE_BONUS/bookEvent/updateGlobalMult`:
+
+    ```bash
+    pnpm run storybook --filter=lines
+    ```
+
+    Click the **Action** button. The `GlobalMultiplier` component should animate correctly. When the handler completes, the story displays:
+
+    > ⓘ Action is resolved ✅
+
+    If the action does not resolve, go back to the component and debug until it resolves cleanly.
+
+    <Tip>
+    If the component is hard to debug through emitterEvents alone, create a dedicated story `COMPONENTS/GlobalMultiplierSpine/component` that accepts the multiplier value as a Storybook control prop. This separates visual testing from event-driven testing.
+    </Tip>
+  </Step>
+
+  <Step title="Test in books">
+    Switch to `MODE_BONUS/book/random` in the Storybook sidebar. Keep clicking **Action** to cycle through the books defined in `bonus_books.ts`. Because you added the `updateGlobalMult` event to one of those books in step 1, it will appear eventually — and your component should respond correctly.
+
+    Once every bookEvent story resolves with ✅ and the full book plays through without issues, the feature is complete.
+  </Step>
+</Steps>
+
+## Reference: existing handler example
+
+For comparison, here is the `updateFreeSpin` handler from `bookEventHandlerMap.ts` — a simpler real-world example showing the same pattern:
+
+```typescript
+updateFreeSpin: async (bookEvent: BookEventOfType<'updateFreeSpin'>) => {
+  eventEmitter.broadcast({ type: 'freeSpinCounterShow' });
+  stateUi.freeSpinCounterShow = true;
+  eventEmitter.broadcast({
+    type: 'freeSpinCounterUpdate',
+    current: bookEvent.amount + 1,
+    total: bookEvent.total,
+  });
+  stateUi.freeSpinCounterCurrent = bookEvent.amount + 1;
+  stateUi.freeSpinCounterTotal = bookEvent.total;
+},
+```
+
+And the corresponding subscriber in `FreeSpinCounter.svelte`:
+
+```svelte
+<script lang="ts" module>
+  export type EmitterEventFreeSpinCounter =
+    | { type: 'freeSpinCounterShow' }
+    | { type: 'freeSpinCounterHide' }
+    | { type: 'freeSpinCounterUpdate'; current?: number; total?: number };
+</script>
+
+<script lang="ts">
+  const context = getContext();
+
+  let show = $state(false);
+  let current = $state(0);
+  let total = $state(0);
+
+  context.eventEmitter.subscribeOnMount({
+    freeSpinCounterShow: () => (show = true),
+    freeSpinCounterHide: () => (show = false),
+    freeSpinCounterUpdate: (emitterEvent) => {
+      if (emitterEvent.current !== undefined) current = emitterEvent.current;
+      if (emitterEvent.total !== undefined) total = emitterEvent.total;
+    },
+  });
+</script>
+```

@@ -1,0 +1,202 @@
+---
+title: "utils-xstate"
+description: "XState finite state machine for managing game bet flows"
+---
+
+`utils-xstate` wraps [XState v5](https://stately.ai/docs/) to provide a robust [finite state machine](https://en.wikipedia.org/wiki/Finite-state_machine) for the betting lifecycle. It eliminates deeply nested `if-else` logic and provides a clean API for UI components to react to game state.
+
+## createXstate()
+
+Creates the reactive `stateXstate` and `stateXstateDerived` objects. Call this once per game.
+
+```ts
+import { createXstate } from 'utils-xstate';
+
+const { stateXstate, stateXstateDerived } = createXstate();
+```
+
+### stateXstate
+
+```ts
+const stateXstate = $state({
+  value: '' as StateValue, // current XState machine state name
+});
+```
+
+### stateXstateDerived
+
+A collection of helper functions that each call `matchesState` from XState internally:
+
+```ts
+const stateXstateDerived = {
+  matchesXstate:   (state: string) => boolean,
+  isRendering:     () => boolean,  // machine is in 'rendering' state
+  isIdle:          () => boolean,  // machine is in 'idle' state
+  isBetting:       () => boolean,  // machine is in 'bet' state
+  isAutoBetting:   () => boolean,  // machine is in 'autoBet' state
+  isResumingBet:   () => boolean,  // machine is in 'resumeBet' state
+  isPlaying:       () => boolean,  // NOT rendering AND NOT idle
+};
+```
+
+`isPlaying()` is the most commonly used helper — it returns `true` whenever any bet flow is active.
+
+## State machine states
+
+The `gameActor` machine has five states:
+
+| State | Constant | Description |
+|---|---|---|
+| `rendering` | `STATE_RENDERING` | Initial state; waiting for the loading screen to finish. |
+| `idle` | `STATE_IDLE` | Ready to accept a bet. |
+| `bet` | `STATE_BET` | A single bet is in progress. |
+| `autoBet` | `STATE_AUTOBET` | Auto-spin is running with a countdown. |
+| `resumeBet` | `STATE_RESUME_BET` | Resuming an unfinished bet from a previous session. |
+
+```ts
+// constants.ts
+export const STATE_RENDERING  = 'rendering'  as const;
+export const STATE_IDLE       = 'idle'       as const;
+export const STATE_BET        = 'bet'        as const;
+export const STATE_AUTOBET    = 'autoBet'    as const;
+export const STATE_RESUME_BET = 'resumeBet'  as const;
+```
+
+## createGameActor()
+
+Builds the XState machine and actor using `setup()` + `createActor()` from XState:
+
+```ts
+import { setup, createActor } from 'xstate';
+
+const gameMachine = setup({
+  actors: {
+    bet:       intermediateMachines.bet,
+    autoBet:   intermediateMachines.autoBet,
+    resumeBet: intermediateMachines.resumeBet,
+  },
+}).createMachine({
+  initial: 'rendering',
+  states: {
+    rendering: { on: { RENDERED: { target: 'idle' } } },
+    idle: {
+      on: {
+        BET:        { target: 'bet' },
+        AUTO_BET:   { target: 'autoBet' },
+        RESUME_BET: { target: 'resumeBet' },
+      },
+    },
+    bet:       { invoke: { src: 'bet',       onDone: 'idle' } },
+    autoBet:   { invoke: { src: 'autoBet',   onDone: 'idle' } },
+    resumeBet: { invoke: { src: 'resumeBet', onDone: 'idle' } },
+  },
+});
+
+const gameActor = createActor(gameMachine);
+```
+
+## createIntermediateMachines()
+
+Creates the three sub-machines (`bet`, `autoBet`, `resumeBet`) that are invoked by the game actor. Each is built from **primary machine** actors (`newGame`, `playGame`, `endGame`, `resumeGame`) provided by your game.
+
+```ts
+import { createIntermediateMachines } from 'utils-xstate';
+
+const intermediateMachines = createIntermediateMachines({
+  resumeGame,
+  newGame,
+  playGame,
+  endGame,
+});
+// Returns: { bet, autoBet, resumeBet }
+```
+
+## createPrimaryMachines()
+
+Creates the four XState `fromPromise` actors that form the inner bet loop. You provide callbacks that connect the machine to your game's RGS requests and animation layer.
+
+```ts
+function createPrimaryMachines<TBet extends BaseBet>(options: {
+  onResumeGameActive:   (betToResume: TBet) => TBet;
+  onResumeGameInactive: (betToResume: TBet) => void;
+  onNewGameStart:       () => Promise<void> | undefined;
+  onNewGameError:       () => any;
+  onPlayGame:           (bet: TBet) => Promise<void>;
+  checkIsBonusGame:     (bet: TBet) => boolean;
+})
+// Returns: { newGame, playGame, endGame, resumeGame }
+```
+
+### BET_TYPE_METHODS_MAP
+
+Internally, `createPrimaryMachines` classifies each bet into one of three types and calls `end-round` at the appropriate time:
+
+```ts
+const BET_TYPE_METHODS_MAP = {
+  noWin: {
+    // No RGS end-round calls needed
+    newGame: async () => undefined,
+    endGame: async () => undefined,
+  },
+  singleRoundWin: {
+    // Call end-round BEFORE playing animations (balance pre-fetched)
+    newGame: async () => {
+      const endRoundData = await handleRequestEndRound();
+      if (endRoundData?.balance) {
+        balanceAmountFromApiHolder = endRoundData.balance.amount;
+      }
+    },
+    endGame: async () => {
+      if (balanceAmountFromApiHolder !== null) {
+        handleUpdateBalance({ balanceAmountFromApi: balanceAmountFromApiHolder });
+        balanceAmountFromApiHolder = null;
+      }
+    },
+  },
+  bonusWin: {
+    // Call end-round AFTER all animations finish
+    newGame: async () => undefined,
+    endGame: async () => {
+      const data = await handleRequestEndRound();
+      if (data?.balance) {
+        handleUpdateBalance({ balanceAmountFromApi: data.balance.amount });
+        balanceAmountFromApiHolder = null;
+      }
+    },
+  },
+} as const;
+```
+
+<Note>
+The timing of `end-round` differs by bet type. Whether a bet can be resumed from the `authenticate` request depends on when `end-round` is called. `bonusWin` bets can be resumed because `end-round` is deferred until after animations.
+</Note>
+
+## ContextXstate
+
+```ts
+import { setContextXstate, getContextXstate } from 'utils-xstate';
+
+// Entry component
+setContextXstate({ stateXstate, stateXstateDerived });
+
+// Any descendant component
+const { stateXstate, stateXstateDerived } = getContextXstate();
+```
+
+Context key: `'@@xstate'`.
+
+## UI usage example
+
+The most common usage is disabling buttons while the game is playing:
+
+```svelte
+<!-- BetButton.svelte -->
+<script lang="ts">
+  import { getContext } from '../context';
+  const context = getContext();
+</script>
+
+<SimpleUiButton disabled={context.stateXstateDerived.isPlaying()} />
+```
+
+Because `stateXstateDerived` functions are backed by Svelte `$state`, any component that reads them is automatically reactive — the button re-enables as soon as the machine transitions back to `idle`.

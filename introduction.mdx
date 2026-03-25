@@ -1,0 +1,86 @@
+---
+title: "Introduction"
+description: "What is the Stake Engine Web SDK and how it helps you build casino games"
+---
+
+The Stake Engine Web SDK is an open-source monorepo framework for building casino games that run on the [Stake Engine](https://engine.stake.com/) Remote Game Server (RGS). It gives you a fully wired-up development environment—complete with component isolation, a local test harness, and a one-command build pipeline—so you can focus on the game itself rather than the infrastructure around it.
+
+You can use the SDK in two ways:
+
+- **Deploy on Stake Engine** — build a game using the provided patterns and launch it directly on the platform.
+- **Starting point for custom implementations** — fork the repo and modify any part of the source code. You have 100% freedom over the codebase.
+
+## Key technologies
+
+The SDK is powered by the following npm packages:
+
+| Technology | Purpose |
+|---|---|
+| [Svelte 5](https://www.npmjs.com/package/svelte) | Reactive UI framework for game components |
+| [PixiJS 8](https://www.npmjs.com/package/pixi.js) | WebGL-accelerated 2D rendering |
+| [pixi-svelte](https://www.npmjs.com/package/pixi-svelte) | In-house package combining PixiJS and Svelte for declarative canvas rendering |
+| [SvelteKit](https://www.npmjs.com/package/@sveltejs/kit) | Application framework and build pipeline |
+| [TurboRepo](https://www.npmjs.com/package/turbo) | Monorepo task orchestration |
+| [XState](https://www.npmjs.com/package/xstate) | Finite state machine for bet lifecycle management |
+| [Storybook](https://www.npmjs.com/package/storybook) | Component isolation and game testing environment |
+| [Lingui](https://www.npmjs.com/package/@lingui/core) | Internationalisation |
+| [TypeScript](https://www.npmjs.com/package/typescript) | Type safety across the monorepo |
+| [pnpm](https://www.npmjs.com/package/pnpm) | Package manager with workspace support |
+
+## The Stake Engine platform
+
+Stake Engine (`engine.stake.com`) is the RGS that sits behind every game. When a player places a bet, the RGS returns a **book**—a JSON object containing a sequence of **bookEvents** that fully describes how that round plays out. The SDK's architecture is built around consuming those bookEvents in order.
+
+## Architecture overview
+
+The data flow from RGS to screen follows a single, consistent pipeline:
+
+```
+RGS → book → bookEvents → bookEventHandlerMap → emitterEvents → Svelte components
+```
+
+1. **RGS** returns a book for each game request.
+2. **`playBookEvents()`** iterates through `book.events` in sequence—order matters because it determines the visual behaviour (e.g. spin before win).
+3. Each **`bookEventHandler`** in `bookEventHandlerMap` processes one event type. It typically broadcasts one or more **emitterEvents** via `eventEmitter`.
+4. **Svelte components** subscribe to emitterEvents with `eventEmitter.subscribeOnMount()` and handle them synchronously or asynchronously—waiting for animations to finish before the sequence continues.
+
+This event-driven architecture (see the [bookEvent and emitterEvent concepts](/concepts/book-and-events)) keeps game logic decoupled from rendering and makes every step independently testable in Storybook.
+
+## Monorepo structure
+
+The repository follows a standard TurboRepo layout:
+
+```
+root
+  |_apps          # Individual game applications
+  |  |_cluster
+  |  |_lines
+  |  |_number-picker
+  |  |_price
+  |  |_scatter
+  |  |_ways
+  |
+  |_packages     # Shared modules
+     |_config-*
+     |_constants-*
+     |_state-*
+     |_utils-*
+     |_components-*
+     |_pixi-*
+```
+
+**`/apps`** — each folder is a complete, runnable game. The `lines` game is the primary reference implementation used throughout this documentation.
+
+**`/packages`** — shared modules consumed by apps and other packages via `workspace:*` dependencies. They follow a `<type>-<scope>` naming convention (e.g. `utils-book`, `components-ui-pixi`).
+
+<CardGroup cols={3}>
+  <Card title="Quickstart" icon="bolt" href="/quickstart">
+    Get the SDK running locally in minutes with Storybook.
+  </Card>
+  <Card title="Book and Events" icon="diagram-project" href="/concepts/book-and-events">
+    Understand the bookEvent and emitterEvent architecture.
+  </Card>
+  <Card title="Packages" icon="box" href="/packages/overview">
+    Explore the shared packages available across the monorepo.
+  </Card>
+</CardGroup>

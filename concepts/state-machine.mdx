@@ -1,0 +1,222 @@
+---
+title: "Game State Machine"
+description: "XState-powered finite state machine for managing bet flows and game states"
+---
+
+The Web SDK uses [XState](https://stately.ai/docs/) to model the game lifecycle as a **finite state machine**. Rather than scattering `if/else` guards across the codebase, all bet-flow transitions are encoded in one place and every component can query the current state through a small set of derived functions.
+
+## Why a State Machine?
+
+Betting logic involves many interlocking conditions: is a bet already in flight? Is auto-bet running? Is there an unfinished round to resume? Without a state machine, these checks accumulate into fragile `if/else` chains. XState makes valid transitions explicit and prevents impossible states (e.g. starting a new bet while one is already running).
+
+## The Game States
+
+The machine is created in `packages/utils-xstate/src/createGameActor.ts`. It has five states:
+
+```typescript
+// packages/utils-xstate/src/constants.ts
+export const STATE_RENDERING  = 'rendering'  as const;
+export const STATE_IDLE       = 'idle'       as const;
+export const STATE_BET        = 'bet'        as const;
+export const STATE_AUTOBET    = 'autoBet'    as const;
+export const STATE_RESUME_BET = 'resumeBet'  as const;
+```
+
+```
+                 ┌────────────┐
+   (initial) ──▶ │ rendering  │ ──RENDERED──▶ ┌──────┐
+                 └────────────┘               │ idle │
+                                              └──┬───┘
+                             ┌────────────────┐  │  ┌────────────────┐
+                             │    resumeBet   │◀─┤  │      bet       │
+                             │  (fromPromise) │  │  │  (fromPromise) │
+                             └───────┬────────┘  │  └───────┬────────┘
+                                     │           │          │
+                                     │  ┌────────────────┐  │
+                                     └─▶│    autoBet     │◀─┘
+                                        │  (fromPromise) │
+                                        └───────┬────────┘
+                                                │
+                                             (onDone)
+                                                │
+                                             idle ◀──────────────────
+```
+
+<AccordionGroup>
+  <Accordion title="rendering">
+    The initial state. The game stays here while the loading screen is visible and assets are being processed. Once the `RENDERED` event is sent, the machine transitions to `idle`.
+  </Accordion>
+  <Accordion title="idle">
+    The machine is waiting for user input. The bet button is enabled. From here the machine can transition to `bet` (single bet), `autoBet` (auto-spin sequence), or `resumeBet` (if an unfinished round was detected at authenticate time).
+  </Accordion>
+  <Accordion title="bet">
+    A single bet is in flight. Invokes the `bet` intermediate machine as a child actor. Returns to `idle` when done.
+  </Accordion>
+  <Accordion title="autoBet">
+    An auto-spin sequence is running. Invokes the `autoBet` intermediate machine which counts down `stateBet.autoSpinsCounter`. Returns to `idle` when the counter reaches zero or is cancelled.
+  </Accordion>
+  <Accordion title="resumeBet">
+    An unfinished round from a previous session is being replayed. Invokes the `resumeBet` intermediate machine. Returns to `idle` when done. This state is only entered on game load when `stateBet.betToResume` is set.
+  </Accordion>
+</AccordionGroup>
+
+## Creating the Actor
+
+`createGameActor` is a factory that wires the five states together with the intermediate machine actors:
+
+```typescript
+// packages/utils-xstate/src/createGameActor.ts
+
+import { setup, createActor } from 'xstate';
+
+const createGameActor = (intermediateMachines: IntermediateMachines) => {
+  const gameMachine = setup({
+    actors: {
+      bet:       intermediateMachines.bet,
+      autoBet:   intermediateMachines.autoBet,
+      resumeBet: intermediateMachines.resumeBet,
+    },
+  }).createMachine({
+    initial: 'rendering',
+    states: {
+      [STATE_RENDERING]:  stateRendering,
+      [STATE_IDLE]:       stateIdle,
+      [STATE_BET]:        stateBet,
+      [STATE_AUTOBET]:    stateAutoBet,
+      [STATE_RESUME_BET]: stateResumeBet,
+    },
+  });
+
+  const gameActor = createActor(gameMachine);
+  return gameActor;
+};
+```
+
+In `apps/lines`, the actor is created via the `createXstate()` factory:
+
+```typescript
+// apps/lines/src/game/stateXstate.ts
+import { createXstate } from 'utils-xstate';
+
+export const { stateXstate, stateXstateDerived } = createXstate();
+```
+
+## Querying State with `stateXstateDerived`
+
+`createXstate()` returns two objects:
+
+- `stateXstate` — Svelte `$state` holding the raw XState `StateValue`
+- `stateXstateDerived` — plain functions that call `matchesState()` from xstate
+
+```typescript
+// packages/utils-xstate/src/createXstateUtils.svelte.ts
+
+import { matchesState, type StateValue } from 'xstate';
+
+export const createXstate = () => {
+  const stateXstate = $state({
+    value: '' as StateValue,
+  });
+
+  const matchesXstate = (state: string) => matchesState(state, stateXstate.value);
+
+  const stateXstateDerived = {
+    matchesXstate,
+    isRendering:    () => matchesXstate(STATE_RENDERING),
+    isIdle:         () => matchesXstate(STATE_IDLE),
+    isBetting:      () => matchesXstate(STATE_BET),
+    isAutoBetting:  () => matchesXstate(STATE_AUTOBET),
+    isResumingBet:  () => matchesXstate(STATE_RESUME_BET),
+    isPlaying:      () => !matchesXstate(STATE_RENDERING) && !matchesXstate(STATE_IDLE),
+  };
+
+  return { stateXstate, stateXstateDerived };
+};
+```
+
+| Function | Returns `true` when |
+|---|---|
+| `isRendering()` | The loading screen is active |
+| `isIdle()` | Ready and waiting for input |
+| `isBetting()` | A single bet is in progress |
+| `isAutoBetting()` | An auto-spin sequence is running |
+| `isResumingBet()` | A previous unfinished round is being resumed |
+| `isPlaying()` | Any bet state — `!isRendering() && !isIdle()` |
+
+## Using State in Components
+
+Access `stateXstateDerived` via context. Because it is built on Svelte `$state`, any component reading it will react to state changes:
+
+```svelte
+<!-- BetButton.svelte -->
+
+<script lang="ts">
+  import { getContext } from '../game/context';
+
+  const context = getContext();
+</script>
+
+<!-- Disabled whenever a bet, auto-bet, or resume-bet is in flight -->
+<SimpleUiButton disabled={context.stateXstateDerived.isPlaying()} />
+```
+
+## BET_TYPE_METHODS_MAP and `end-round` Timing
+
+The `createPrimaryMachines` factory in `packages/utils-xstate/src/createPrimaryMachines.ts` defines `BET_TYPE_METHODS_MAP`, which controls **when the `end-round` API is called** relative to game animations:
+
+```typescript
+// packages/utils-xstate/src/createPrimaryMachines.ts
+
+const BET_TYPE_METHODS_MAP = {
+  // No win: end-round is never called
+  noWin: {
+    newGame: async () => undefined,
+    endGame: async () => undefined,
+  },
+
+  // Single-round win: end-round is called immediately after the bet request
+  // (before animations), balance is updated after animations finish
+  singleRoundWin: {
+    newGame: async () => {
+      const endRoundData = await handleRequestEndRound();
+      if (endRoundData?.balance) {
+        balanceAmountFromApiHolder = endRoundData.balance.amount;
+      }
+    },
+    endGame: async () => {
+      if (balanceAmountFromApiHolder !== null) {
+        handleUpdateBalance({ balanceAmountFromApi: balanceAmountFromApiHolder });
+        balanceAmountFromApiHolder = null;
+      }
+    },
+  },
+
+  // Bonus win (multi-round): end-round is called after all animations finish
+  bonusWin: {
+    newGame: async () => undefined,
+    endGame: async () => {
+      const data = await handleRequestEndRound();
+      if (data?.balance) {
+        handleUpdateBalance({ balanceAmountFromApi: data.balance.amount });
+        balanceAmountFromApiHolder = null;
+      }
+    },
+  },
+} as const;
+```
+
+<AccordionGroup>
+  <Accordion title="noWin">
+    `end-round` is never called. The round closed itself with no payout.
+  </Accordion>
+  <Accordion title="singleRoundWin">
+    `end-round` is called immediately after the RGS bet response (`newGame`), before any animations run. The balance value is cached and only applied to the UI after animations complete (`endGame`). This allows the round to be resumed if the player refreshes mid-animation.
+  </Accordion>
+  <Accordion title="bonusWin">
+    `end-round` is called **after** all animations complete (`endGame`). This is required for multi-request rounds (e.g. free spins) where the round remains `active` until the player finishes the bonus game.
+  </Accordion>
+</AccordionGroup>
+
+<Note>
+Whether a bet can be resumed from the authenticate request is determined by when `end-round` is called. If `end-round` has not been called, `stateBet.betToResume.active` will be `true`, and the machine will enter the `resumeBet` state on next load.
+</Note>

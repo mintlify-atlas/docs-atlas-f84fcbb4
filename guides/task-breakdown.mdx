@@ -1,0 +1,119 @@
+---
+title: "Task Breakdown Pattern"
+description: "How to decompose complex bookEvents into atomic, testable emitterEvents"
+---
+
+Task Breakdown is the central design principle of the Web SDK. Rather than implementing a complex game feature as one large block, you decompose it into small, named, independently-testable pieces called **emitterEvents**.
+
+## The core principle
+
+<Tip>
+Each `emitterEventHandler` should do one minimal job — the job described by its type name. This is the [Single Responsibility Principle](https://www.digitalocean.com/community/conceptual-articles/s-o-l-i-d-the-first-five-principles-of-object-oriented-design#single-responsibility-principle) applied to game events.
+</Tip>
+
+For example, `freeSpinCounterShow` should only show the component. It should not update the counter value. `freeSpinCounterUpdate` should only update the counter values. It should not show or hide anything.
+
+When each handler does exactly one thing:
+
+- It can be named precisely, making the sequence of operations readable
+- Each step can be tested independently in Storybook
+- Bugs are isolated to a single handler instead of buried in a large function
+- Components stay focused and easy to reason about
+
+## The tumbleBoard example
+
+`tumbleBoard` is a mechanically complex bookEvent. Symbols explode, disappear, new symbols fall from above, and the board settles into a new state. A naive implementation might put all of this logic in a single `tumbleBoard` emitterEvent.
+
+Instead, it is broken into four atomic steps:
+
+| emitterEvent | Responsibility |
+|---|---|
+| `tumbleBoardInit` | Load new symbols into the board above the visible area |
+| `tumbleBoardExplode` | Play explosion animations on the winning symbols |
+| `tumbleBoardRemoveExploded` | Remove the exploded symbols from state |
+| `tumbleBoardSlideDown` | Animate remaining symbols sliding down to fill gaps |
+
+The `bookEventHandler` in `bookEventHandlerMap.ts` sequences them:
+
+```typescript
+// bookEventHandlerMap.ts
+
+tumbleBoard: async (bookEvent: BookEventOfType<'tumbleBoard'>) => {
+  eventEmitter.broadcast({ type: 'tumbleBoardShow' });
+  eventEmitter.broadcast({ type: 'tumbleBoardInit', addingBoard: bookEvent.newSymbols });
+  await eventEmitter.broadcastAsync({
+    type: 'tumbleBoardExplode',
+    explodingPositions: bookEvent.explodingSymbols,
+  });
+  eventEmitter.broadcast({ type: 'tumbleBoardRemoveExploded' });
+  await eventEmitter.broadcastAsync({ type: 'tumbleBoardSlideDown' });
+  eventEmitter.broadcast({
+    type: 'boardSettle',
+    board: stateGameDerived
+      .tumbleBoardCombined()
+      .map((tumbleReel) => tumbleReel.map((tumbleSymbol) => tumbleSymbol.rawSymbol)),
+  });
+  eventEmitter.broadcast({ type: 'tumbleBoardReset' });
+  eventEmitter.broadcast({ type: 'tumbleBoardHide' });
+},
+```
+
+<Note>
+`eventEmitter.broadcast()` is synchronous and fire-and-forget. `eventEmitter.broadcastAsync()` waits for all subscribers to resolve before continuing. Use `broadcastAsync` for any step that involves an animation you need to wait on — like the explosion and slide-down phases above.
+</Note>
+
+The corresponding `subscribeOnMount` in `TumbleBoard.svelte` lists all the handlers:
+
+```svelte
+<!-- TumbleBoard.svelte -->
+
+context.eventEmitter.subscribeOnMount({
+  tumbleBoardShow: () => {},
+  tumbleBoardHide: () => {},
+  tumbleBoardInit: () => {},
+  tumbleBoardReset: () => {},
+  tumbleBoardExplode: () => {},
+  tumbleBoardRemoveExploded: () => {},
+  tumbleBoardSlideDown: () => {},
+});
+```
+
+At a glance you can read the full lifecycle of a tumble from the handler map alone — no need to open `TumbleBoard.svelte` to understand the sequence.
+
+## Why this matters for testing
+
+Because every step is its own named emitterEvent, you can write a Storybook story for each one under `COMPONENTS/<Game>/emitterEvent`. You can test that the explosion animation works before the slide-down is even implemented. You can verify the slide-down independently if the explosion is broken.
+
+With a monolithic approach you would have to test all or nothing.
+
+## emitterEvents can span multiple components
+
+<Tip>
+The emitterEvents under a single bookEvent can come from different Svelte components. A `reveal` bookEvent might broadcast events that are handled by `Board.svelte`, `Sound.svelte`, and `Transition.svelte` simultaneously.
+</Tip>
+
+This is intentional. The `bookEventHandler` is the orchestrator. Individual Svelte components are the workers. Each component only knows about its own slice of the work.
+
+Visually this looks like a bookEvent with coloured blocks beneath it — each colour representing a different Svelte component that handles some of the emitterEvents in that sequence.
+
+## Stateless vs stateful games
+
+Task Breakdown applies regardless of game type, but it is especially valuable for stateless games:
+
+- **Stateless games**: A single request to the RGS produces all the data for a complete round. A slots game is a typical example — one request returns the full `book` of `bookEvents` for a spin.
+
+- **Stateful games**: Multiple requests are needed to complete a round. A mines game (where the player reveals tiles one at a time) requires a separate RGS request for each tile reveal.
+
+Stateless games can still be surprisingly complex — multiple game modes, free spin mechanics, global multipliers, win levels, and different spin types all need to be decomposed and tested individually.
+
+## Implementation workflow
+
+The recommended way to build any feature is to implement it incrementally through the task breakdown:
+
+1. Define the bookEvent type
+2. Write the bookEventHandler with the emitterEvent sequence
+3. Define emitterEvent types on the Svelte component
+4. Implement one emitterEventHandler at a time
+5. Test each one in Storybook before moving to the next
+
+This matches the steps described in the [Adding a BookEvent](/guides/adding-a-book-event) guide.

@@ -1,0 +1,201 @@
+---
+title: "utils-sound"
+description: "Audio management using Howler.js for music and sound effects"
+---
+
+`utils-sound` wraps [Howler.js](https://www.npmjs.com/package/howler) to provide a structured audio system with three playback modes: looping music, looping sound effects, and one-shot sound effects. Volume levels are automatically synced to the global `stateSound` from `state-shared`.
+
+## createSound()
+
+Factory function typed by your game's sound name union. Create one instance per game.
+
+```ts
+import { createSound } from 'utils-sound';
+
+type SoundName = 'bgMusic' | 'spinReel' | 'winCoin' | 'buttonClick';
+
+const sound = createSound<SoundName>();
+```
+
+### Return value
+
+```ts
+{
+  load:          (loadedAudio: LoadedAudio<TSoundName>) => { destroy: () => void };
+  stop:          (stopOptions: StopOptions<TSoundName>) => void;
+  fade:          (fadeOptions: FadeOptions<TSoundName>) => Promise<void>;
+  rate:          (rateOptions: RateOptions<TSoundName>) => void;
+  volumeEffect:  () => void;  // register $effect to sync volume from stateSound
+  enableEffect:  () => void;  // register $effect to mute/unmute on tab visibility
+  get players(): { music: Player; loop: Player; once: Player };
+}
+```
+
+## load()
+
+Must be called once after assets have loaded. Receives a `LoadedAudio` object from `stateApp.loadedAssets` (populated by `pixi-svelte`).
+
+```ts
+const { destroy } = sound.load(stateApp.loadedAssets['sounds']);
+```
+
+Internally creates a single `Howl` instance and three `Player` instances:
+
+| Player | Loop | Behaviour |
+|---|---|---|
+| `players.music` | Yes | Only one music track plays at a time. Starting a new track pauses the current one. |
+| `players.loop` | Yes | Starts a looping sound effect; does nothing if already playing. |
+| `players.once` | No | Plays a one-shot sound; auto-removes from map on end. Supports `forcePlay` to restart. |
+
+## Player methods
+
+Each player in `sound.players` exposes:
+
+```ts
+{
+  play:  (options: PlayOptions<TSoundName> & { forcePlay?: boolean }) => void;
+  stop:  (options: StopOptions<TSoundName>) => void;
+  fade:  (options: FadeOptions<TSoundName>) => Promise<void>;
+  rate:  (options: RateOptions<TSoundName>) => void;
+  volume:(volume: number) => void;
+  howl:  Howl;
+  debug: () => void;
+}
+```
+
+## Playback examples
+
+```ts
+// Play background music (resumes if paused, no-op if already playing)
+sound.players.music.play({ name: 'bgMusic' });
+
+// Play a looping sound effect
+sound.players.loop.play({ name: 'reelSpin' });
+
+// Stop the looping sound effect
+sound.stop({ name: 'reelSpin' });
+
+// Play a one-shot sound
+sound.players.once.play({ name: 'winCoin' });
+
+// Force restart a one-shot (even if currently playing)
+sound.players.once.play({ name: 'buttonClick', forcePlay: true });
+
+// Fade out music over 1 second
+await sound.fade({ name: 'bgMusic', from: 1, to: 0, duration: 1000 });
+
+// Change playback rate (e.g. turbo mode)
+sound.rate({ name: 'reelSpin', rate: 1.5 });
+```
+
+## Type reference
+
+```ts
+export type PlayOptions<TSoundName>  = { name: TSoundName };
+export type StopOptions<TSoundName>  = { name: TSoundName };
+export type FadeOptions<TSoundName>  = { name: TSoundName; from: number; to: number; duration: number };
+export type RateOptions<TSoundName>  = { name: TSoundName; rate: number };
+
+export type SoundState   = 'new' | 'playing' | 'paused';
+export type SoundConfig  = { volume: number };
+
+export type GetSound<TSoundName> = {
+  soundId:     number;
+  soundName:   TSoundName;
+  soundState:  SoundState;
+  soundConfig: SoundConfig; // per-sound volume multiplier from the asset config
+  soundVolume: number;      // current fade volume (0–1)
+};
+```
+
+## Volume system
+
+Volume is controlled globally via `stateSound` from `state-shared`. All three players observe this state via Svelte `$effect`.
+
+```ts
+// state-shared/src/stateSound.svelte.ts
+const DEFAULT_VOLUME_VALUE = 75; // 0–100 scale
+
+export const stateSound = $state({
+  volumeValueMaster:      DEFAULT_VOLUME_VALUE,
+  volumeValueMusic:       DEFAULT_VOLUME_VALUE,
+  volumeValueSoundEffect: DEFAULT_VOLUME_VALUE,
+});
+
+export const stateSoundDerived = {
+  volumeMaster:      () => stateSound.volumeValueMaster / 100,
+  volumeMusic:       () => (stateSound.volumeValueMusic / 100)       * stateSoundDerived.volumeMaster(),
+  volumeSoundEffect: () => (stateSound.volumeValueSoundEffect / 100) * stateSoundDerived.volumeMaster(),
+};
+```
+
+Call `sound.volumeEffect()` inside a Svelte component (e.g. the root `Game.svelte`) to register the reactive effects that keep player volume in sync:
+
+```svelte
+<script lang="ts">
+  import { onMount } from 'svelte';
+  import { sound } from '../game/sound';
+
+  // Register volume and enable/disable reactive effects
+  sound.volumeEffect();
+  sound.enableEffect();
+</script>
+```
+
+## Enable / disable
+
+`enableEffect()` registers a `$effect` that calls `Howler.mute(true)` whenever the tab is hidden or the `AudioContext` is not running (e.g. the browser blocked autoplay), and `Howler.mute(false)` when both conditions clear:
+
+```ts
+const enableEffect = () => {
+  $effect(() => {
+    if (audioContextState === 'running' && visibilityState === 'visible') {
+      Howler.volume(1);
+      Howler.mute(false);
+    } else {
+      Howler.volume(0);
+      Howler.mute(true);
+    }
+  });
+};
+```
+
+The UI components in `components-ui-pixi` expose a `ButtonSoundSwitch` component that lets the player toggle sound on/off by writing to `stateSound.volumeValueMaster`.
+
+## Full setup example
+
+```ts
+// apps/lines/src/game/sound.ts
+import { createSound } from 'utils-sound';
+
+export type SoundName =
+  | 'bgMusic'
+  | 'bonusMusic'
+  | 'spinReel'
+  | 'stopReel'
+  | 'winSmall'
+  | 'winBig';
+
+export const sound = createSound<SoundName>();
+```
+
+```svelte
+<!-- apps/lines/src/components/Game.svelte -->
+<script lang="ts">
+  import { sound } from '../game/sound';
+  import { getContextApp } from 'pixi-svelte';
+
+  const { stateApp } = getContextApp();
+
+  // Register effects inside component lifecycle
+  sound.volumeEffect();
+  sound.enableEffect();
+
+  $effect(() => {
+    if (stateApp.loaded) {
+      const { destroy } = sound.load(stateApp.loadedAssets['sounds']);
+      return destroy; // cleanup on component destroy
+    }
+  });
+</script>
+```

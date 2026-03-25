@@ -1,0 +1,183 @@
+---
+title: "UI Components and Internationalisation"
+description: "Using the built-in UI package and adding multi-language support"
+---
+
+## UI packages
+
+The SDK provides two UI packages:
+
+- **`components-ui-pixi`** (`packages/components-ui-pixi`) — PixiJS-based UI components rendered on the canvas. Handles layout, buttons, labels, and the main `<UI>` component.
+- **`components-ui-html`** (`packages/components-ui-html`) — HTML/Svelte components for overlay UI: modals, pay table, auto-spin settings, bet menu, settings, and game rules.
+
+Both packages are functional and include features like auto-gaming, turbo mode, bonus buy, and responsive layout. They are a starting point, not a final product.
+
+<Note>
+The UI packages are designed to be used as a reference and starting point. For your final game, customise them to match your branding or replace them entirely. The source code is fully open.
+</Note>
+
+## The `<UI>` component
+
+`<UI>` from `components-ui-pixi` is the main canvas UI wrapper. It accepts two Svelte 5 snippet props:
+
+| Prop | Description |
+|---|---|
+| `gameName` | Renders the game name label in the UI layout |
+| `logo` | Renders a logo or branding element |
+
+Here is the full usage example from the `lines` app:
+
+```svelte
+<script lang="ts">
+  import { UI, UiGameName } from 'components-ui-pixi';
+  import { GameVersion, Modals } from 'components-ui-html';
+</script>
+
+<App>
+  <UI>
+    {#snippet gameName()}
+      <UiGameName name="LINES GAME" />
+    {/snippet}
+    {#snippet logo()}
+      <Text
+        anchor={{ x: 1, y: 0 }}
+        text="ADD YOUR LOGO"
+        style={{
+          fontFamily: 'proxima-nova',
+          fontSize: REM * 1.5,
+          fontWeight: '600',
+          lineHeight: REM * 2,
+          fill: 0xffffff,
+        }}
+      />
+    {/snippet}
+  </UI>
+</App>
+
+<Modals>
+  {#snippet version()}
+    <GameVersion version="0.0.0" />
+  {/snippet}
+</Modals>
+```
+
+## components-ui-pixi components
+
+All components live in `packages/components-ui-pixi/src/components/`:
+
+**Buttons**
+
+| Component | Purpose |
+|---|---|
+| `ButtonBet` | Main bet/spin button |
+| `ButtonAutoSpin` | Toggle auto-spin mode |
+| `ButtonBuyBonus` | Purchase the bonus feature |
+| `ButtonMenu` | Open the game menu |
+| `ButtonTurbo` | Toggle turbo mode |
+| `ButtonSettings` | Open settings modal |
+| `ButtonPayTable` | Open pay table modal |
+| `ButtonGameRules` | Open game rules modal |
+| `ButtonSoundSwitch` | Toggle sound on/off |
+| `ButtonDecrease` / `ButtonIncrease` | Adjust bet amount |
+| `ButtonDrawer` | Collapse/expand the UI drawer |
+
+**Labels**
+
+| Component | Purpose |
+|---|---|
+| `LabelBalance` | Displays current balance |
+| `LabelBet` | Displays current bet amount |
+| `LabelWin` | Displays current win amount |
+| `LabelFreeSpinCounter` | Displays free spin count in the UI bar |
+
+**Layout**
+
+The `<UI>` component selects a layout based on device type:
+
+| Component | When used |
+|---|---|
+| `LayoutDesktop` | Widescreen desktop |
+| `LayoutLandscape` | Landscape phone or tablet |
+| `LayoutPortrait` | Portrait phone |
+| `LayoutTablet` | Tablet aspect ratio |
+
+## components-ui-html components
+
+All modal and overlay components live in `packages/components-ui-html/src/components/`:
+
+- `Modals` — container for all overlay modals
+- `ModalAutoSpin` — auto-spin configuration modal
+- `ModalBetMenu` — bet amount selection
+- `ModalBuyBonus` — bonus buy flow with `ModalBuyBonusConfirm`
+- `ModalPayTable` — pay table display
+- `ModalGameRules` — game rules display
+- `ModalSettings` — game settings including sound
+- `ModalError` — error display
+- `GameVersion` — displays the game version string
+
+## Internationalisation
+
+The SDK uses [Lingui](https://www.npmjs.com/package/@lingui/core) for internationalisation. Configuration lives in `packages/config-lingui`.
+
+### How translations work
+
+The `i18nDerived` object in `packages/components-ui-pixi/src/i18n/i18nDerived.ts` provides reactive translation functions for all UI strings:
+
+```typescript
+// packages/components-ui-pixi/src/i18n/i18nDerived.ts
+
+import { stateI18nDerived, stateUrlDerived } from 'state-shared';
+
+export const i18nDerived = {
+  audio: () => stateI18nDerived.translate('AUDIO'),
+  balance: () => stateI18nDerived.translate('BALANCE'),
+  win: () => stateI18nDerived.translate('WIN'),
+  bet: () => stateUrlDerived.social() ? 'SPIN' : stateI18nDerived.translate('BET'),
+  stop: () => stateI18nDerived.translate('STOP'),
+  buyBonus: () => stateUrlDerived.social() ? 'PLAY BONUS' : stateI18nDerived.translate('BUY BONUS'),
+  disable: () => stateI18nDerived.translate('DISABLE'),
+  freeSpins: () => stateI18nDerived.translate('FREE SPINS'),
+  decrease: () => stateI18nDerived.translate('-'),
+  increase: () => stateI18nDerived.translate('+'),
+  menu: () => stateI18nDerived.translate('MENU'),
+  turbo: () => stateI18nDerived.translate('TURBO'),
+  autoSpin: () => stateI18nDerived.translate('AUTO SPIN'),
+  payTable: () => stateI18nDerived.translate('PAYTABLE'),
+  info: () => stateI18nDerived.translate('INFO'),
+  settings: () => stateI18nDerived.translate('SETTINGS'),
+  soundOn: () => stateI18nDerived.translate('SOUND ON'),
+  soundOff: () => stateI18nDerived.translate('SOUND OFF'),
+  menuExit: () => stateI18nDerived.translate('EXIT'),
+};
+```
+
+Message catalogues for each locale live in `packages/components-ui-pixi/src/i18n/messagesMap/`.
+
+### Social casino mode
+
+When a game runs on a social casino platform (such as stake.us), the query string contains `social=true`. The `stateUrlDerived.social()` function checks for this flag.
+
+Some labels must change for social casino compliance:
+
+| Standard casino | Social casino |
+|---|---|
+| BET | SPIN |
+| BUY BONUS | PLAY BONUS |
+
+This is already handled in `i18nDerived.ts` as shown above — the `bet` and `buyBonus` functions branch based on `stateUrlDerived.social()`.
+
+<Tip>
+If you add custom UI text that needs a social casino variant, follow the same pattern: check `stateUrlDerived.social()` and return the alternative string.
+</Tip>
+
+### Currency formatting
+
+Use the `numberToCurrencyString` function from `packages/utils-shared/amount.ts` to format currency values. This function delegates to Lingui's `i18n.number` under the hood, so any currency supported by the Intl API is automatically handled.
+
+The player's currency is set from the authentication response:
+
+```typescript
+stateBet.currency = authenticateData.balance.currency;
+```
+
+**Special currencies**: Some social casino platforms (such as stake.us) use non-standard currency codes that the Intl API does not recognise. These are handled by `NO_LOCALISATION_CURRENCY_MAP` in `packages/utils-shared/amount.ts`, which maps those codes to custom formatting rules.
